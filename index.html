@@ -18,62 +18,94 @@
     </div>
 
     <main class="app-shell">
-      <section class="hero glass-card">
+      <section class="glass-card auth-card" id="authPanel">
         <div>
-          <p class="eyebrow">Для водителей-курьеров</p>
-          <h1>Маршруты из Excel в один клик</h1>
-          <p class="hero-text">
-            Загрузите файл Excel, и система сама найдёт ваши накладные,
-            адреса, веса, покупателей, комментарии и номера заказов.
-          </p>
+          <p class="eyebrow">Вход в систему</p>
+          <h1>Маршруты курьера</h1>
+          <p class="hero-text">Войдите под своим аккаунтом, чтобы загружать маршруты, просматривать историю и сохранять их по датам.</p>
         </div>
 
-        <div class="hero-actions">
-          <button id="addRouteBtn" class="primary-btn">Добавить маршрут</button>
-          <div class="helper-card">
-            <span class="helper-label">Ваши номера</span>
-            <div id="courierNumbers" class="chips"></div>
-          </div>
-        </div>
+        <form id="loginForm" class="auth-form">
+          <label class="field">
+            <span>Логин</span>
+            <input id="loginInput" type="text" autocomplete="username" placeholder="driver" required />
+          </label>
+          <label class="field">
+            <span>Пароль</span>
+            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="driver123" required />
+          </label>
+          <button class="primary-btn" type="submit">Войти</button>
+          <div id="authMessage" class="status-panel">Демо-доступ: driver / driver123</div>
+        </form>
       </section>
 
-      <section class="content-grid">
-        <article class="glass-card upload-card">
-          <div class="section-title-row">
-            <div>
-              <p class="section-kicker">Загрузка файла</p>
-              <h2>Импорт Excel</h2>
+      <section class="app-layout hidden" id="appPanel">
+        <header class="topbar glass-card">
+          <div>
+            <p class="eyebrow">Панель водителя</p>
+            <h2>Управление маршрутами</h2>
+          </div>
+          <div class="topbar-stats">
+            <div class="stat-pill">
+              <span class="stat-label">Счетчик завершенных маршрутов за месяц</span>
+              <strong id="monthCounter">0</strong>
             </div>
-            <span class="badge">.xlsx</span>
+            <button id="logoutBtn" class="ghost-btn" type="button">Выйти</button>
           </div>
+        </header>
 
-          <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
+        <section class="content-grid">
+          <article class="glass-card upload-card">
+            <div class="section-title-row">
+              <div>
+                <p class="section-kicker">Маршрут</p>
+                <h2>Добавить номера</h2>
+              </div>
+              <span class="badge">.xls / .xlsx</span>
+            </div>
 
-          <label for="fileInput" class="dropzone" id="dropzone">
-            <div class="dropzone-icon">⇪</div>
-            <p class="dropzone-title">Перетащите Excel сюда или нажмите кнопку</p>
-            <p class="dropzone-subtitle">Сайт считает таблицу и покажет дорожную карту маршрута.</p>
-          </label>
+            <button id="addRouteBtn" class="primary-btn wide-btn" type="button">Добавить маршрут</button>
+            <button id="addNumbersBtn" class="secondary-btn" type="button">Добавить номера</button>
 
-          <div class="file-info" id="fileInfo">Файл не выбран</div>
-          <div class="status-panel" id="statusPanel">
-            Ожидание файла. После загрузки здесь появится разбор маршрута.
-          </div>
-        </article>
+            <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
+            <textarea id="manualNumbers" class="manual-input hidden" rows="5" placeholder="Вставьте номера РасхНакл, по одному в строке"></textarea>
 
-        <article class="glass-card route-card">
+            <label for="fileInput" class="dropzone" id="dropzone">
+              <div class="dropzone-icon">⇪</div>
+              <p class="dropzone-title">Перетащите Excel сюда или нажмите кнопку</p>
+              <p class="dropzone-subtitle">Сайт прочитает таблицу, сохранит маршрут и покажет дорожную карту.</p>
+            </label>
+
+            <div class="toolbar-grid">
+              <button id="showMapsBtn" class="secondary-btn" type="button">Показать все маршруты на Яндекс карте</button>
+              <button id="favoritesBtn" class="secondary-btn" type="button">Добавить все маршруты в избранное на Яндекс Картах</button>
+            </div>
+
+            <div id="fileInfo" class="file-info">Файл не выбран</div>
+            <div id="statusPanel" class="status-panel">Ожидание файла. После загрузки здесь появится разбор маршрута.</div>
+          </article>
+
+          <article class="glass-card history-card">
+            <div class="section-title-row">
+              <div>
+                <p class="section-kicker">История</p>
+                <h2>Архив по датам</h2>
+              </div>
+              <span class="badge" id="resultCount">0 точек</span>
+            </div>
+            <div id="historyList" class="history-list empty-state">Пока нет сохранённых маршрутов.</div>
+          </article>
+        </section>
+
+        <section class="glass-card route-card">
           <div class="section-title-row">
             <div>
               <p class="section-kicker">Результат</p>
               <h2>Дорожная карта</h2>
             </div>
-            <span class="badge" id="resultCount">0 точек</span>
           </div>
-
-          <div id="routeMap" class="route-map empty-state">
-            Загрузите Excel, чтобы увидеть маршрут.
-          </div>
-        </article>
+          <div id="routeMap" class="route-map empty-state">Загрузите Excel, чтобы увидеть маршрут.</div>
+        </section>
       </section>
     </main>
 

@@ -1,0 +1,22 @@
+{
+  "users": [
+    {
+      "id": "user-admin",
+      "login": "driver",
+      "passwordHash": "494d022492052a06f8f81949639a1d148c1051fa3d4e4688fbd96efe649cd382",
+      "role": "driver",
+      "createdAt": "2026-04-16T14:00:01.514Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "session_11331aaa-1988-44a1-ade1-65f5744a79a8",
+      "userId": "user-admin",
+      "token": "sess_5ac121a0-505a-44ab-87e9-acee59b4e35f",
+      "expiresAt": "2026-04-17T02:05:58.281Z"
+    }
+  ],
+  "routes": [],
+  "routeItems": [],
+  "monthlyStats": []
+}
