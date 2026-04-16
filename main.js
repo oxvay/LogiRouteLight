@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = '/api';
 const SESSION_TOKEN_KEY = 'logiroute_session_token';
 const courierNumbers = ['00НФ-025488', '00НФ-025491', '00НФ-025525', '00НФ-025498', '00НФ-025499', '00НФ-025507', '00НФ-025508', '00НФ-025512', '00НФ-025513', '00НФ-025518', '00НФ-025533', '00НФ-025534', '00НФ-025536', '00НФ-025538'];
 const normalizedCourierNumbers = courierNumbers.map(normalizeText);
@@ -53,14 +53,18 @@ bootstrap();
 async function bootstrap() {
   const token = localStorage.getItem(SESSION_TOKEN_KEY);
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
-  const response = await fetch(`${API_BASE}/me`, { headers });
-  if (response.ok) {
-    const data = await response.json();
-    currentUser = data.user;
-    showApp();
-    await loadHistory();
-    await loadStats();
-    return;
+  try {
+    const response = await fetch(`${API_BASE}/me`, { headers });
+    if (response.ok) {
+      const data = await response.json();
+      currentUser = data.user;
+      showApp();
+      await loadHistory();
+      await loadStats();
+      return;
+    }
+  } catch (error) {
+    console.error('Ошибка сети при проверке сессии:', error);
   }
   localStorage.removeItem(SESSION_TOKEN_KEY);
   showAuth();
@@ -69,21 +73,26 @@ async function bootstrap() {
 async function handleLogin(event) {
   event.preventDefault();
   authMessage.textContent = 'Вход...';
-  const response = await fetch(`${API_BASE}/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ login: loginInput.value.trim(), password: passwordInput.value })
-  });
-  if (!response.ok) {
-    authMessage.textContent = 'Неверный логин или пароль';
-    return;
+  try {
+    const response = await fetch(`${API_BASE}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: loginInput.value.trim(), password: passwordInput.value })
+    });
+    if (!response.ok) {
+      authMessage.textContent = 'Неверный логин или пароль';
+      return;
+    }
+    const data = await response.json();
+    currentUser = data.user;
+    localStorage.setItem(SESSION_TOKEN_KEY, data.token);
+    showApp();
+    await loadHistory();
+    await loadStats();
+  } catch (error) {
+    console.error('Network error during login:', error);
+    authMessage.textContent = 'Ошибка соединения с сервером';
   }
-  const data = await response.json();
-  currentUser = data.user;
-  localStorage.setItem(SESSION_TOKEN_KEY, data.token);
-  showApp();
-  await loadHistory();
-  await loadStats();
 }
 
 async function handleLogout() {

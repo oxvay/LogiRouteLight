@@ -14,7 +14,7 @@ const allowedOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173'
 function buildJsonHeaders(origin = '') {
   return {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': allowedOrigins.has(origin) ? origin : 'http://localhost:5173',
+    'Access-Control-Allow-Origin': origin || '*',
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'

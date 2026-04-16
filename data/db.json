@@ -10,10 +10,10 @@
   ],
   "sessions": [
     {
-      "id": "session_11331aaa-1988-44a1-ade1-65f5744a79a8",
+      "id": "session_b044fc82-b266-4f67-9090-5db08016c844",
       "userId": "user-admin",
-      "token": "sess_5ac121a0-505a-44ab-87e9-acee59b4e35f",
-      "expiresAt": "2026-04-17T02:05:58.281Z"
+      "token": "sess_50663dcc-bf0f-4476-9017-26bf2fb10611",
+      "expiresAt": "2026-04-17T02:16:09.844Z"
     }
   ],
   "routes": [],
