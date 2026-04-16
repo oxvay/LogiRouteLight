@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>LogiRoute Light</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script type="module" crossorigin src="/assets/index-DXR0Sz1y.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C3ZSrRXq.css">
+  </head>
+  <body>
+    <div class="background-blobs" aria-hidden="true">
+      <span class="blob blob-1"></span>
+      <span class="blob blob-2"></span>
+      <span class="blob blob-3"></span>
+    </div>
+
+    <main class="app-shell">
+      <section class="hero glass-card">
+        <div>
+          <p class="eyebrow">Для водителей-курьеров</p>
+          <h1>Маршруты из Excel в один клик</h1>
+          <p class="hero-text">
+            Загрузите файл Excel, и система сама найдёт ваши накладные,
+            адреса, веса, покупателей, комментарии и номера заказов.
+          </p>
+        </div>
+
+        <div class="hero-actions">
+          <button id="addRouteBtn" class="primary-btn">Добавить маршрут</button>
+          <div class="helper-card">
+            <span class="helper-label">Ваши номера</span>
+            <div id="courierNumbers" class="chips"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <article class="glass-card upload-card">
+          <div class="section-title-row">
+            <div>
+              <p class="section-kicker">Загрузка файла</p>
+              <h2>Импорт Excel</h2>
+            </div>
+            <span class="badge">.xlsx</span>
+          </div>
+
+          <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
+
+          <label for="fileInput" class="dropzone" id="dropzone">
+            <div class="dropzone-icon">⇪</div>
+            <p class="dropzone-title">Перетащите Excel сюда или нажмите кнопку</p>
+            <p class="dropzone-subtitle">Сайт считает таблицу и покажет дорожную карту маршрута.</p>
+          </label>
+
+          <div class="file-info" id="fileInfo">Файл не выбран</div>
+          <div class="status-panel" id="statusPanel">
+            Ожидание файла. После загрузки здесь появится разбор маршрута.
+          </div>
+        </article>
+
+        <article class="glass-card route-card">
+          <div class="section-title-row">
+            <div>
+              <p class="section-kicker">Результат</p>
+              <h2>Дорожная карта</h2>
+            </div>
+            <span class="badge" id="resultCount">0 точек</span>
+          </div>
+
+          <div id="routeMap" class="route-map empty-state">
+            Загрузите Excel, чтобы увидеть маршрут.
+          </div>
+        </article>
+      </section>
+    </main>
+
+  </body>
+</html>
