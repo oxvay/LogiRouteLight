@@ -12,6 +12,10 @@ const dataColumns = {
   buyer: 5, comment: 7, responsible: 8, deliveryService: 9, orderId: 11
 };
 
+function lsKey(key) {
+  return currentUser ? `${key}_${currentUser.id}` : key;
+}
+
 // ── DOM ───────────────────────────────────────────────────
 const authPanel      = document.getElementById('authPanel');
 const appPanel       = document.getElementById('appPanel');
@@ -57,6 +61,22 @@ let selectedUploadDate = todayStr();
 let calendarState    = { year: new Date().getFullYear(), month: new Date().getMonth() };
 let selectedCalDay   = null;
 
+// ── Admin DOM ─────────────────────────────────────────────
+const adminPanel       = document.getElementById('adminPanel');
+const adminLogoutBtn   = document.getElementById('adminLogoutBtn');
+const adminHeaderUser  = document.getElementById('adminHeaderUser');
+const tabAdminDriversBtn = document.getElementById('tabAdminDriversBtn');
+const adminDriversTab  = document.getElementById('adminDriversTab');
+const adminDriversCount= document.getElementById('adminDriversCount');
+const adminAddDriverBtn= document.getElementById('adminAddDriverBtn');
+const adminAddDriverForm= document.getElementById('adminAddDriverForm');
+const newDriverLogin   = document.getElementById('newDriverLogin');
+const newDriverPassword= document.getElementById('newDriverPassword');
+const saveDriverBtn    = document.getElementById('saveDriverBtn');
+const cancelDriverBtn  = document.getElementById('cancelDriverBtn');
+const adminDriverError = document.getElementById('adminDriverError');
+const adminDriversList = document.getElementById('adminDriversList');
+
 // ── Startup ───────────────────────────────────────────────
 loginForm.addEventListener('submit', handleLogin);
 logoutBtn.addEventListener('click', handleLogout);
@@ -81,6 +101,17 @@ calNextBtn.addEventListener('click',   () => { shiftCalendar(1);  renderCalendar
 ['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
 dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
 
+// Admin listeners
+adminLogoutBtn.addEventListener('click', handleLogout);
+tabAdminDriversBtn.addEventListener('click', () => switchAdminTab('adminDriversTab'));
+adminAddDriverBtn.addEventListener('click', () => adminAddDriverForm.classList.remove('hidden'));
+cancelDriverBtn.addEventListener('click', () => {
+  adminAddDriverForm.classList.add('hidden');
+  newDriverLogin.value = ''; newDriverPassword.value = '';
+  adminDriverError.classList.add('hidden');
+});
+saveDriverBtn.addEventListener('click', handleAdminAddDriver);
+
 bootstrap();
 
 // ── Auth ─────────────────────────────────────────────────
@@ -90,8 +121,12 @@ async function bootstrap() {
     const res = await fetch(`${API_BASE}/me`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (res.ok) {
       currentUser = (await res.json()).user;
-      showApp();
-      await loadTodayRoute();
+      if (currentUser.role === 'admin') {
+        showAdminApp();
+      } else {
+        showApp();
+        await loadTodayRoute();
+      }
       return;
     }
   } catch { /* fall through */ }
@@ -112,15 +147,21 @@ async function handleLogin(e) {
     const data = await res.json();
     currentUser = data.user;
     localStorage.setItem(SESSION_TOKEN_KEY, data.token);
-    showApp();
-    await loadTodayRoute();
+    if (currentUser.role === 'admin') {
+      showAdminApp();
+    } else {
+      showApp();
+      await loadTodayRoute();
+    }
   } catch { setAuthMsg('Ошибка соединения с сервером', true); }
 }
 
 async function handleLogout() {
-  currentUser = null;
+  try {
+    await fetch(`${API_BASE}/logout`, { method: 'POST', headers: authHeaders() });
+  } catch { /* ignore */ }
   localStorage.removeItem(SESSION_TOKEN_KEY);
-  showAuth();
+  location.reload();
 }
 
 function setAuthMsg(text, isError) {
@@ -131,17 +172,114 @@ function setAuthMsg(text, isError) {
 function showAuth() {
   authPanel.classList.remove('hidden');
   appPanel.classList.add('hidden');
-  setAuthMsg('Демо: driver / driver123', false);
+  adminPanel.classList.add('hidden');
+  setAuthMsg('Демо: driver / driver123 | admin / admin123', false);
   loginInput.value = '';
   passwordInput.value = '';
 }
 
 function showApp() {
   authPanel.classList.add('hidden');
+  adminPanel.classList.add('hidden');
   appPanel.classList.remove('hidden');
   headerUser.textContent = currentUser?.login || 'Водитель';
   loadSavedNumbers();
   renderCalendar();
+}
+
+function showAdminApp() {
+  authPanel.classList.add('hidden');
+  appPanel.classList.add('hidden');
+  adminPanel.classList.remove('hidden');
+  adminHeaderUser.textContent = currentUser?.login || 'Администратор';
+  loadAdminUsers();
+}
+
+// ── Admin Logic ───────────────────────────────────────────
+
+function switchAdminTab(tabId) {
+  [adminDriversTab].forEach(t => t.classList.add('hidden'));
+  [tabAdminDriversBtn].forEach(b => b.classList.remove('active'));
+  document.getElementById(tabId).classList.remove('hidden');
+  document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+  if (tabId === 'adminDriversTab') loadAdminUsers();
+}
+
+async function loadAdminUsers() {
+  try {
+    const res = await fetch(`${API_BASE}/admin/users`, { headers: authHeaders() });
+    if (!res.ok) return;
+    const { users } = await res.json();
+    adminDriversCount.textContent = `${users.length} пользовател${pluralRu(users.length)}`;
+    adminDriversList.innerHTML = '';
+    users.forEach(u => {
+      const card = document.createElement('div');
+      card.className = 'route-card';
+      card.innerHTML = `
+        <div class="card-main">
+          <div class="route-badge" style="background:var(--text); ${u.role === 'admin' ? 'background:var(--red)' : ''}">👤</div>
+          <div class="route-info">
+            <div class="route-address">${escapeHtml(u.login)}</div>
+            <div class="route-ordnum">Роль: ${u.role}</div>
+          </div>
+          <div class="route-actions">
+            ${u.role !== 'admin' ? `<button class="maps-btn delete-driver-btn" style="background:var(--red);" data-id="${u.id}">Удалить</button>` : ''}
+          </div>
+        </div>
+      `;
+      adminDriversList.appendChild(card);
+    });
+    
+    document.querySelectorAll('.delete-driver-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = e.target.dataset.id;
+        if (!confirm('Вы уверены, что хотите удалить этого пользователя и всю его историю? ОПЕРАЦИЯ НЕОБРАТИМА!')) return;
+        try {
+          e.target.textContent = '...';
+          const res = await fetch(`${API_BASE}/admin/users/${id}`, { method: 'DELETE', headers: authHeaders() });
+          if (res.ok) {
+            loadAdminUsers();
+          } else {
+            alert('Ошибка удаления');
+          }
+        } catch (err) { alert('Ошибка сети'); }
+      });
+    });
+  } catch (err) { console.error('Error fetching admin users', err); }
+}
+
+async function handleAdminAddDriver() {
+  adminDriverError.classList.add('hidden');
+  const login = newDriverLogin.value;
+  const password = newDriverPassword.value;
+  if (!login || !password) {
+    adminDriverError.textContent = 'Заполните логин и пароль';
+    adminDriverError.classList.remove('hidden');
+    return;
+  }
+  saveDriverBtn.textContent = '...';
+  try {
+    const res = await fetch(`${API_BASE}/admin/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ login, password })
+    });
+    if (!res.ok) {
+      const { error } = await res.json();
+      adminDriverError.textContent = error || 'Ошибка создания';
+      adminDriverError.classList.remove('hidden');
+    } else {
+      newDriverLogin.value = '';
+      newDriverPassword.value = '';
+      adminAddDriverForm.classList.add('hidden');
+      loadAdminUsers();
+    }
+  } catch (err) {
+    adminDriverError.textContent = 'Сетевая ошибка';
+    adminDriverError.classList.remove('hidden');
+  } finally {
+    saveDriverBtn.textContent = 'Сохранить';
+  }
 }
 
 // ── Schedule Toggle ───────────────────────────────────────
@@ -162,7 +300,7 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 
 function getFilterSuffixes() {
   try {
-    const saved = JSON.parse(localStorage.getItem(LS_NUMBERS) || 'null');
+    const saved = JSON.parse(localStorage.getItem(lsKey(LS_NUMBERS)) || 'null');
     if (saved?.date === todayStr()) return saved.suffixes;
   } catch { /* ignore */ }
   return [];
@@ -183,7 +321,7 @@ function saveNumbers() {
     numbersStatus.textContent = 'Введите хотя бы одно число';
     return;
   }
-  localStorage.setItem(LS_NUMBERS, JSON.stringify({ date: todayStr(), suffixes }));
+  localStorage.setItem(lsKey(LS_NUMBERS), JSON.stringify({ date: todayStr(), suffixes }));
   showNumbersStatus(suffixes);
 }
 
@@ -201,7 +339,7 @@ async function loadTodayRoute() {
   const token = localStorage.getItem(SESSION_TOKEN_KEY);
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-  const saved = JSON.parse(localStorage.getItem(LS_ACTIVE) || 'null');
+  const saved = JSON.parse(localStorage.getItem(lsKey(LS_ACTIVE)) || 'null');
   if (saved?.date === todayStr() && saved.routeId) {
     activeRouteId = saved.routeId;
     const res = await fetch(`${API_BASE}/routes/${activeRouteId}/items`, { headers });
@@ -220,11 +358,16 @@ async function loadTodayRoute() {
   const res = await fetch(`${API_BASE}/routes?date=${todayStr()}`, { headers });
   if (!res.ok) return;
   const { routes } = await res.json();
-  if (!routes?.length) return;
+  if (!routes?.length) {
+    activeRouteId = null;
+    currentRows = [];
+    renderRoute([]);
+    return;
+  }
 
   const latest = routes[routes.length - 1];
   activeRouteId = latest.id;
-  localStorage.setItem(LS_ACTIVE, JSON.stringify({ date: todayStr(), routeId: activeRouteId }));
+  localStorage.setItem(lsKey(LS_ACTIVE), JSON.stringify({ date: todayStr(), routeId: activeRouteId }));
 
   const itemsRes = await fetch(`${API_BASE}/routes/${activeRouteId}/items`, { headers });
   if (!itemsRes.ok) return;
@@ -239,7 +382,7 @@ async function loadTodayRoute() {
 
 function restoreStatuses() {
   if (!activeRouteId) return;
-  const all = JSON.parse(localStorage.getItem(LS_STATUSES) || '{}');
+  const all = JSON.parse(localStorage.getItem(lsKey(LS_STATUSES)) || '{}');
   currentRows.forEach((row, i) => {
     row._status = all[`${activeRouteId}_${i}`] || 'pending';
   });
@@ -282,7 +425,7 @@ async function processFile(file) {
     const routeId = await saveRoute(file.name, currentRows);
     if (routeId && selectedUploadDate === todayStr()) {
       activeRouteId = routeId;
-      localStorage.setItem(LS_ACTIVE, JSON.stringify({ date: todayStr(), routeId }));
+      localStorage.setItem(lsKey(LS_ACTIVE), JSON.stringify({ date: todayStr(), routeId }));
     }
   } catch (err) {
     console.error(err);
@@ -511,16 +654,16 @@ function markAllDelivered() {
 // ── Status Persistence (localStorage) ────────────────────
 function persistStatus(index, status) {
   if (!activeRouteId) return;
-  const all = JSON.parse(localStorage.getItem(LS_STATUSES) || '{}');
+  const all = JSON.parse(localStorage.getItem(lsKey(LS_STATUSES)) || '{}');
   all[`${activeRouteId}_${index}`] = status;
-  localStorage.setItem(LS_STATUSES, JSON.stringify(all));
+  localStorage.setItem(lsKey(LS_STATUSES), JSON.stringify(all));
 }
 
 // ── History ───────────────────────────────────────────────
 function historyKey(index) { return `${activeRouteId || 'local'}_${index}`; }
 
 function addToHistory(row, index) {
-  const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
+  const history = JSON.parse(localStorage.getItem(lsKey(LS_HISTORY)) || '[]');
   const key = historyKey(index);
   const existing = history.findIndex(h => h.key === key);
   const record = {
@@ -534,14 +677,14 @@ function addToHistory(row, index) {
   };
   if (existing >= 0) history[existing] = record;
   else history.push(record);
-  localStorage.setItem(LS_HISTORY, JSON.stringify(history));
+  localStorage.setItem(lsKey(LS_HISTORY), JSON.stringify(history));
 }
 
 function removeFromHistory(index) {
   const key = historyKey(index);
-  const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]')
+  const history = JSON.parse(localStorage.getItem(lsKey(LS_HISTORY)) || '[]')
     .filter(h => h.key !== key);
-  localStorage.setItem(LS_HISTORY, JSON.stringify(history));
+  localStorage.setItem(lsKey(LS_HISTORY), JSON.stringify(history));
 }
 
 // ── Calendar ──────────────────────────────────────────────
@@ -553,7 +696,7 @@ function shiftCalendar(delta) {
 }
 
 function renderCalendar() {
-  const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
+  const history = JSON.parse(localStorage.getItem(lsKey(LS_HISTORY)) || '[]');
 
   // Update badge (always shows current month's count regardless of calendar navigation)
   const todayMonth = todayStr().slice(0, 7);

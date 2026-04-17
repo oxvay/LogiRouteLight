@@ -23,25 +23,40 @@ function buildJsonHeaders(origin = '') {
 
 async function ensureDb() {
   await fs.mkdir(dataDir, { recursive: true });
+  let shouldWrite = false;
+  let db;
   try {
-    await fs.access(dbFile);
+    const raw = await fs.readFile(dbFile, 'utf8');
+    db = JSON.parse(raw);
   } catch {
-    const seed = {
-      users: [
-        {
-          id: 'user-admin',
-          login: 'driver',
-          passwordHash: hashPassword('driver123'),
-          role: 'driver',
-          createdAt: new Date().toISOString()
-        }
-      ],
-      sessions: [],
-      routes: [],
-      routeItems: [],
-      monthlyStats: []
-    };
-    await fs.writeFile(dbFile, JSON.stringify(seed, null, 2), 'utf8');
+    db = { users: [], sessions: [], routes: [], routeItems: [], monthlyStats: [] };
+    shouldWrite = true;
+  }
+  
+  if (!db.users.find(u => u.login === 'admin')) {
+    db.users.push({
+      id: makeId('user'),
+      login: 'admin',
+      passwordHash: hashPassword('admin123'),
+      role: 'admin',
+      createdAt: new Date().toISOString()
+    });
+    shouldWrite = true;
+  }
+  if (!db.users.find(u => u.login === 'driver')) {
+    // Preserve old id style for testing backwards compat if file was deleted
+    db.users.push({
+      id: 'user-admin',
+      login: 'driver',
+      passwordHash: hashPassword('driver123'),
+      role: 'driver',
+      createdAt: new Date().toISOString()
+    });
+    shouldWrite = true;
+  }
+
+  if (shouldWrite) {
+    await fs.writeFile(dbFile, JSON.stringify(db, null, 2), 'utf8');
   }
 }
 
@@ -128,6 +143,22 @@ async function handleLogin(req, res) {
   );
 }
 
+async function handleLogoutAPI(req, res) {
+  const token = getSessionToken(req);
+  if (token) {
+    const db = await readDb();
+    db.sessions = db.sessions.filter(s => s.token !== token);
+    await writeDb(db);
+  }
+  return sendJson(
+    res,
+    200,
+    { success: true },
+    { 'Set-Cookie': 'sessionToken=; HttpOnly; Path=/; Max-Age=0' },
+    req.headers.origin || ''
+  );
+}
+
 async function handleRoutes(req, res, user) {
   const db = await readDb();
   const url = new URL(req.url, 'http://localhost');
@@ -180,6 +211,33 @@ async function handleStats(req, res, user) {
   return sendJson(res, 200, { month, completedRoutesCount: stat.completedRoutesCount }, {}, req.headers.origin || '');
 }
 
+async function handleAdminUsers(req, res) {
+  const db = await readDb();
+  if (req.method === 'GET') {
+    const users = db.users.map(u => ({ id: u.id, login: u.login, role: u.role, createdAt: u.createdAt }));
+    return sendJson(res, 200, { users }, {}, req.headers.origin || '');
+  }
+  if (req.method === 'POST') {
+    const body = await readBody(req);
+    const login = (body.login || '').trim();
+    const password = (body.password || '').trim();
+    if (!login || !password) return sendJson(res, 400, { error: 'Login and password are required' }, {}, req.headers.origin || '');
+    if (db.users.find(u => u.login === login)) return sendJson(res, 400, { error: 'Login already taken' }, {}, req.headers.origin || '');
+    
+    const newUser = {
+      id: makeId('user'),
+      login,
+      passwordHash: hashPassword(password),
+      role: 'driver',
+      createdAt: new Date().toISOString()
+    };
+    db.users.push(newUser);
+    await writeDb(db);
+    return sendJson(res, 201, { user: { id: newUser.id, login: newUser.login, role: newUser.role } }, {}, req.headers.origin || '');
+  }
+  return sendJson(res, 405, { error: 'Method Not Allowed' }, {}, req.headers.origin || '');
+}
+
 async function handleMe(req, res) {
   const user = await getCurrentUser(req);
   if (!user) return sendJson(res, 401, { error: 'Unauthorized' }, {}, req.headers.origin || '');
@@ -195,10 +253,37 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'POST' && url.pathname === '/api/login') return handleLogin(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/logout') return handleLogoutAPI(req, res);
     if (url.pathname === '/api/me') return handleMe(req, res);
 
     const user = await getCurrentUser(req);
     if (!user) return sendJson(res, 401, { error: 'Unauthorized' }, {}, req.headers.origin || '');
+
+    if (url.pathname.startsWith('/api/admin')) {
+      if (user.role !== 'admin') return sendJson(res, 403, { error: 'Forbidden' }, {}, req.headers.origin || '');
+      
+      const userMatch = url.pathname.match(/^\/api\/admin\/users\/(.+)$/);
+      if (userMatch && req.method === 'DELETE') {
+        const targetUserId = userMatch[1];
+        if (targetUserId === user.id) return sendJson(res, 400, { error: 'Нельзя удалить самого себя' }, {}, req.headers.origin || '');
+        
+        const db = await readDb();
+        db.users = db.users.filter(u => u.id !== targetUserId);
+        db.sessions = db.sessions.filter(s => s.userId !== targetUserId);
+        db.monthlyStats = db.monthlyStats.filter(s => s.userId !== targetUserId);
+        
+        const routesToDelete = db.routes.filter(r => r.userId === targetUserId).map(r => r.id);
+        if (routesToDelete.length) {
+          db.routes = db.routes.filter(r => r.userId !== targetUserId);
+          db.routeItems = db.routeItems.filter(i => !routesToDelete.includes(i.routeId));
+        }
+        
+        await writeDb(db);
+        return sendJson(res, 200, { success: true }, {}, req.headers.origin || '');
+      }
+
+      if (url.pathname === '/api/admin/users') return handleAdminUsers(req, res);
+    }
 
     if (url.pathname === '/api/routes') return handleRoutes(req, res, user);
     if (url.pathname === '/api/stats/monthly') return handleStats(req, res, user);
