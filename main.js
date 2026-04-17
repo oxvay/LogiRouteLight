@@ -7,10 +7,6 @@ const LS_NUMBERS   = 'lrl_numbers';     // { date, suffixes: string[] }
 const LS_STATUSES  = 'lrl_statuses';    // { [routeId_index]: status }
 const LS_HISTORY   = 'lrl_history';     // DeliveryRecord[]
 
-const AVG_KM_PER_STOP  = 3.5;
-const AVG_MIN_PER_STOP = 15;
-const AVG_SPEED_KMH    = 40;
-
 const dataColumns = {
   orderNumber: 0, deliveryAddress: 2, grossWeight: 4,
   buyer: 5, comment: 7, responsible: 8, deliveryService: 9, orderId: 11
@@ -37,22 +33,29 @@ const statusPanel    = document.getElementById('statusPanel');
 const routeList      = document.getElementById('routeList');
 const resultCount    = document.getElementById('resultCount');
 const allDeliveredBtn= document.getElementById('allDeliveredBtn');
+const yandexRouteBtn = document.getElementById('yandexRouteBtn');
 const tabRouteBtn    = document.getElementById('tabRouteBtn');
 const tabHistoryBtn  = document.getElementById('tabHistoryBtn');
 const historyBadge   = document.getElementById('historyBadge');
 const routeTab       = document.getElementById('routeTab');
 const historyTab     = document.getElementById('historyTab');
-const historyList    = document.getElementById('historyList');
 const monthlyCount   = document.getElementById('monthlyCount');
 const dropzone       = document.getElementById('dropzone');
-const statKm         = document.getElementById('statKm');
-const statTime       = document.getElementById('statTime');
-const statSpeed      = document.getElementById('statSpeed');
+const chipToday      = document.getElementById('chipToday');
+const chipTomorrow   = document.getElementById('chipTomorrow');
+const calGrid        = document.getElementById('calGrid');
+const calDayDetail   = document.getElementById('calDayDetail');
+const calMonthLabel  = document.getElementById('calMonthLabel');
+const calPrevBtn     = document.getElementById('calPrevBtn');
+const calNextBtn     = document.getElementById('calNextBtn');
 
-let currentUser  = null;
-let currentRows  = [];      // filtered route rows currently displayed
-let activeRouteId= null;    // backend route ID for today
-let dragSrcIndex = null;
+let currentUser      = null;
+let currentRows      = [];      // filtered route rows currently displayed
+let activeRouteId    = null;    // backend route ID for today
+let dragSrcIndex     = null;
+let selectedUploadDate = todayStr();
+let calendarState    = { year: new Date().getFullYear(), month: new Date().getMonth() };
+let selectedCalDay   = null;
 
 // ── Startup ───────────────────────────────────────────────
 loginForm.addEventListener('submit', handleLogin);
@@ -67,8 +70,13 @@ saveNumbersBtn.addEventListener('click', saveNumbers);
 addRouteBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
 allDeliveredBtn.addEventListener('click', markAllDelivered);
+yandexRouteBtn.addEventListener('click', buildYandexRoute);
 tabRouteBtn.addEventListener('click',   () => switchTab('routeTab'));
 tabHistoryBtn.addEventListener('click', () => switchTab('historyTab'));
+chipToday.addEventListener('click',    () => selectUploadDate('today'));
+chipTomorrow.addEventListener('click', () => selectUploadDate('tomorrow'));
+calPrevBtn.addEventListener('click',   () => { shiftCalendar(-1); renderCalendar(); });
+calNextBtn.addEventListener('click',   () => { shiftCalendar(1);  renderCalendar(); });
 ['dragenter', 'dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
 ['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
 dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
@@ -133,7 +141,20 @@ function showApp() {
   appPanel.classList.remove('hidden');
   headerUser.textContent = currentUser?.login || 'Водитель';
   loadSavedNumbers();
-  renderHistory();
+  renderCalendar();
+}
+
+// ── Schedule Toggle ───────────────────────────────────────
+function tomorrowStr() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function selectUploadDate(which) {
+  selectedUploadDate = which === 'tomorrow' ? tomorrowStr() : todayStr();
+  chipToday.classList.toggle('active', which === 'today');
+  chipTomorrow.classList.toggle('active', which === 'tomorrow');
 }
 
 // ── Numbers Filter ────────────────────────────────────────
@@ -180,11 +201,9 @@ async function loadTodayRoute() {
   const token = localStorage.getItem(SESSION_TOKEN_KEY);
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-  // Check if we have a stored activeRoute for today
   const saved = JSON.parse(localStorage.getItem(LS_ACTIVE) || 'null');
   if (saved?.date === todayStr() && saved.routeId) {
     activeRouteId = saved.routeId;
-    // Verify it still exists on the backend and load items
     const res = await fetch(`${API_BASE}/routes/${activeRouteId}/items`, { headers });
     if (res.ok) {
       const { items } = await res.json();
@@ -198,7 +217,6 @@ async function loadTodayRoute() {
     }
   }
 
-  // Fallback: query today's routes from backend and use the latest
   const res = await fetch(`${API_BASE}/routes?date=${todayStr()}`, { headers });
   if (!res.ok) return;
   const { routes } = await res.json();
@@ -219,7 +237,6 @@ async function loadTodayRoute() {
   }
 }
 
-// Restore per-card statuses from localStorage
 function restoreStatuses() {
   if (!activeRouteId) return;
   const all = JSON.parse(localStorage.getItem(LS_STATUSES) || '{}');
@@ -251,12 +268,19 @@ async function processFile(file) {
     }
     filtered.forEach(r => { r._status = 'pending'; });
     currentRows = filtered;
-    renderRoute(currentRows);
-    statusPanel.textContent = `Найдено ${currentRows.length} точек.`;
 
-    // Save to backend
+    const label = selectedUploadDate === todayStr() ? 'сегодня' : 'завтра';
+    statusPanel.textContent = `Найдено ${currentRows.length} точек (${label}).`;
+
+    // Only display the route immediately if it's for today
+    if (selectedUploadDate === todayStr()) {
+      renderRoute(currentRows);
+    } else {
+      statusPanel.textContent += ' Маршрут сохранён для завтра.';
+    }
+
     const routeId = await saveRoute(file.name, currentRows);
-    if (routeId) {
+    if (routeId && selectedUploadDate === todayStr()) {
       activeRouteId = routeId;
       localStorage.setItem(LS_ACTIVE, JSON.stringify({ date: todayStr(), routeId }));
     }
@@ -279,7 +303,6 @@ function extractRowsFromWorkbook(workbook) {
       const row = rows[r] || [];
       if (!row.some(c => String(c ?? '').trim() !== '')) continue;
       const mapped = mapRow(row);
-      // Skip header-ish rows
       if (String(mapped.orderNumber).toUpperCase().includes('РАСХНАКЛ')) continue;
       result.push(mapped);
     }
@@ -330,7 +353,7 @@ async function saveRoute(sourceFileName, items) {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       sourceFileName,
-      routeDate: todayStr(),
+      routeDate: selectedUploadDate,
       status: 'active',
       items: items.map(r => ({
         orderNumber: r.orderNumber, deliveryAddress: r.deliveryAddress,
@@ -346,8 +369,8 @@ async function saveRoute(sourceFileName, items) {
 // ── Render Route ──────────────────────────────────────────
 function renderRoute(rows) {
   resultCount.textContent = `${rows.length} точек`;
-  updateStats(rows.length);
   allDeliveredBtn.classList.toggle('hidden', rows.length === 0);
+  yandexRouteBtn.classList.toggle('hidden', rows.length === 0);
 
   if (!rows.length) {
     routeList.innerHTML = '<div class="empty-state">Совпадений не найдено</div>';
@@ -357,13 +380,14 @@ function renderRoute(rows) {
   rows.forEach((row, i) => routeList.appendChild(createRouteCard(row, i)));
 }
 
-function updateStats(n) {
-  const km = Math.round(n * AVG_KM_PER_STOP);
-  const totalMin = n * AVG_MIN_PER_STOP;
-  const h = Math.floor(totalMin / 60), m = totalMin % 60;
-  statKm.textContent   = n ? km : '0';
-  statTime.textContent = n ? (h ? `${h}ч${m ? m + 'м' : ''}` : `${m}м`) : '0м';
-  statSpeed.textContent = n ? `${AVG_SPEED_KMH}` : '—';
+// ── Yandex Multi-point Route ──────────────────────────────
+function buildYandexRoute() {
+  const addresses = currentRows
+    .filter(r => r.deliveryAddress)
+    .map(r => r.deliveryAddress);
+  if (!addresses.length) return;
+  const rtext = addresses.map(a => encodeURIComponent(a)).join('~');
+  window.open(`https://yandex.ru/maps/?rtext=${rtext}&rtt=auto`, '_blank', 'noopener,noreferrer');
 }
 
 // ── Route Card ────────────────────────────────────────────
@@ -415,15 +439,13 @@ function createRouteCard(row, index) {
     </div>
   `;
 
-  // Expand/collapse on clicking the info area
   const cardMain = card.querySelector('.card-main');
   const details  = card.querySelector('.card-details');
   cardMain.addEventListener('click', e => {
-    if (e.target.closest('.route-actions')) return;  // don't expand when clicking actions
+    if (e.target.closest('.route-actions')) return;
     details.classList.toggle('hidden');
   });
 
-  // Status select
   const select = card.querySelector('.status-select');
   select.addEventListener('change', e => {
     e.stopPropagation();
@@ -435,16 +457,14 @@ function createRouteCard(row, index) {
     persistStatus(index, newStatus);
     if (newStatus === 'delivered') addToHistory(row, index);
     else removeFromHistory(index);
-    renderHistory();
+    renderCalendar();
   });
 
-  // Maps button
   card.querySelector('.maps-btn').addEventListener('click', e => {
     e.stopPropagation();
     window.open(yandex, '_blank', 'noopener,noreferrer');
   });
 
-  // Drag events
   card.addEventListener('dragstart', onCardDragStart);
   card.addEventListener('dragover',  onCardDragOver);
   card.addEventListener('drop',      onCardDrop);
@@ -485,7 +505,7 @@ function markAllDelivered() {
     addToHistory(row, i);
   });
   renderRoute(currentRows);
-  renderHistory();
+  renderCalendar();
 }
 
 // ── Status Persistence (localStorage) ────────────────────
@@ -524,32 +544,94 @@ function removeFromHistory(index) {
   localStorage.setItem(LS_HISTORY, JSON.stringify(history));
 }
 
-function renderHistory() {
+// ── Calendar ──────────────────────────────────────────────
+function shiftCalendar(delta) {
+  calendarState.month += delta;
+  if (calendarState.month > 11) { calendarState.month = 0; calendarState.year++; }
+  if (calendarState.month < 0)  { calendarState.month = 11; calendarState.year--; }
+  selectedCalDay = null;
+}
+
+function renderCalendar() {
   const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
-  const currentMonth = todayStr().slice(0, 7);
-  const thisMonth = history.filter(h => h.date.startsWith(currentMonth));
 
-  // Update badge and counter
-  const count = thisMonth.length;
-  monthlyCount.textContent = String(count);
-  historyBadge.textContent = String(count);
-  historyBadge.classList.toggle('hidden', count === 0);
+  // Update badge (always shows current month's count regardless of calendar navigation)
+  const todayMonth = todayStr().slice(0, 7);
+  const thisMonthCount = history.filter(h => h.date.startsWith(todayMonth)).length;
+  historyBadge.textContent = String(thisMonthCount);
+  historyBadge.classList.toggle('hidden', thisMonthCount === 0);
 
-  if (!history.length) {
-    historyList.innerHTML = '<div class="empty-state">Нет завершённых доставок</div>';
-    return;
+  // Monthly count for displayed calendar month
+  const displayMonth = `${calendarState.year}-${String(calendarState.month + 1).padStart(2, '0')}`;
+  const displayMonthCount = history.filter(h => h.date.startsWith(displayMonth)).length;
+  monthlyCount.textContent = String(displayMonthCount);
+
+  // Month label
+  const labelDate = new Date(calendarState.year, calendarState.month, 1);
+  calMonthLabel.textContent = labelDate.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+
+  // Build set of dates with deliveries
+  const deliveryDates = new Set(history.map(h => h.date));
+  const today = todayStr();
+
+  // First day of month, offset for Monday-first week
+  const firstDay = new Date(calendarState.year, calendarState.month, 1);
+  const lastDay  = new Date(calendarState.year, calendarState.month + 1, 0);
+  let startDow = firstDay.getDay(); // 0=Sun
+  startDow = startDow === 0 ? 6 : startDow - 1; // Mon=0
+
+  const cells = [];
+  ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(d => {
+    cells.push(`<div class="cal-header-cell">${d}</div>`);
+  });
+  for (let i = 0; i < startDow; i++) {
+    cells.push('<div class="cal-cell"></div>');
   }
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = `${calendarState.year}-${String(calendarState.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const hasDeliveries = deliveryDates.has(dateStr);
+    const isToday       = dateStr === today;
+    const isSelected    = dateStr === selectedCalDay;
+    const cls = ['cal-cell',
+      hasDeliveries ? 'has-deliveries' : '',
+      isToday       ? 'is-today'       : '',
+      isSelected    ? 'is-selected'    : ''
+    ].filter(Boolean).join(' ');
+    cells.push(`<div class="${cls}" data-date="${dateStr}">${d}${hasDeliveries ? '<span class="cal-dot"></span>' : ''}</div>`);
+  }
+  calGrid.innerHTML = cells.join('');
 
-  // Sort newest first
-  const sorted = [...history].sort((a, b) => b.completedAt.localeCompare(a.completedAt));
-  historyList.innerHTML = sorted.map(h => {
-    const time = new Date(h.completedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    return `
-      <div class="history-item">
-        <div class="history-addr">${escapeHtml(h.address)}</div>
-        <div class="history-meta">${h.date} · ${time} · Накладная: ${escapeHtml(h.orderNumber)}</div>
-      </div>`;
-  }).join('');
+  calGrid.querySelectorAll('.cal-cell.has-deliveries').forEach(cell => {
+    cell.addEventListener('click', () => {
+      selectedCalDay = selectedCalDay === cell.dataset.date ? null : cell.dataset.date;
+      renderCalendar();
+    });
+  });
+
+  // Day detail panel
+  if (selectedCalDay) {
+    const dayHistory = history
+      .filter(h => h.date === selectedCalDay)
+      .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+    if (dayHistory.length) {
+      calDayDetail.classList.remove('hidden');
+      calDayDetail.innerHTML = `
+        <div class="cal-detail-header">${formatCalDate(selectedCalDay)} — ${dayHistory.length} доставок</div>
+        ${dayHistory.map(h => {
+          const time = new Date(h.completedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+          return `<div class="history-item">
+            <div class="history-addr">${escapeHtml(h.address)}</div>
+            <div class="history-meta">${time} · Накладная: ${escapeHtml(h.orderNumber)}</div>
+          </div>`;
+        }).join('')}`;
+      return;
+    }
+  }
+  calDayDetail.classList.add('hidden');
+}
+
+function formatCalDate(dateStr) {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
 
 // ── Tab Switching ─────────────────────────────────────────
@@ -558,7 +640,7 @@ function switchTab(tabId) {
   [tabRouteBtn, tabHistoryBtn].forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).classList.remove('hidden');
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  if (tabId === 'historyTab') renderHistory();
+  if (tabId === 'historyTab') renderCalendar();
 }
 
 // ── Helpers ───────────────────────────────────────────────

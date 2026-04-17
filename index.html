@@ -55,30 +55,18 @@
 
       <div class="app-content">
 
-        <!-- Stats Dashboard -->
-        <div class="stats-row">
-          <div class="stat-card">
-            <span class="stat-icon">📍</span>
-            <div class="stat-value" id="statKm">0</div>
-            <div class="stat-label">КМ</div>
-          </div>
-          <div class="stat-card">
-            <span class="stat-icon">⏱</span>
-            <div class="stat-value" id="statTime">0м</div>
-            <div class="stat-label">Время</div>
-          </div>
-          <div class="stat-card">
-            <span class="stat-icon">⚡</span>
-            <div class="stat-value" id="statSpeed">—</div>
-            <div class="stat-label">Скорость</div>
-          </div>
-        </div>
-
         <!-- Upload + Numbers -->
         <div class="upload-section">
           <div class="upload-btns">
             <button id="addRouteBtn" class="btn-primary btn-upload" type="button">+ Маршрут</button>
             <button id="numbersBtn" class="btn-secondary" type="button">🔢 Номера</button>
+          </div>
+          <div class="schedule-bar">
+            <span class="schedule-label">Дата маршрута:</span>
+            <div class="date-chips">
+              <button class="date-chip active" id="chipToday" type="button">Сегодня</button>
+              <button class="date-chip" id="chipTomorrow" type="button">Завтра</button>
+            </div>
           </div>
 
           <!-- Numbers Panel -->
@@ -111,7 +99,10 @@
         <div id="routeTab">
           <div class="section-header">
             <span class="route-count" id="resultCount">0 точек</span>
-            <button id="allDeliveredBtn" class="btn-all-delivered hidden" type="button">Все доставлены ✓</button>
+            <div class="header-actions">
+              <button id="yandexRouteBtn" class="btn-secondary btn-sm hidden" type="button">🗺 Маршрут</button>
+              <button id="allDeliveredBtn" class="btn-all-delivered hidden" type="button">Все доставлены ✓</button>
+            </div>
           </div>
           <div id="routeList" class="route-list">
             <div class="empty-state">Укажите номера и загрузите Excel-файл</div>
@@ -120,13 +111,16 @@
 
         <!-- ── History Tab ── -->
         <div id="historyTab" class="hidden">
-          <div class="monthly-bar">
-            <span class="monthly-label">Выполнено в этом месяце:</span>
-            <span class="monthly-count" id="monthlyCount">0</span>
+          <div class="cal-nav">
+            <button id="calPrevBtn" class="btn-ghost cal-nav-btn" type="button">‹</button>
+            <div class="cal-nav-center">
+              <span id="calMonthLabel"></span>
+              <div class="cal-month-count">Доставок: <span id="monthlyCount">0</span></div>
+            </div>
+            <button id="calNextBtn" class="btn-ghost cal-nav-btn" type="button">›</button>
           </div>
-          <div id="historyList" class="history-list">
-            <div class="empty-state">Нет завершённых доставок</div>
-          </div>
+          <div id="calGrid" class="cal-grid"></div>
+          <div id="calDayDetail" class="cal-day-detail hidden"></div>
         </div>
 
       </div><!-- /app-content -->

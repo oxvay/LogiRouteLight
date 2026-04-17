@@ -164,18 +164,6 @@ html, body {
   max-width: 640px; margin: 0 auto; width: 100%;
 }
 
-/* ── Stats ── */
-.stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-
-.stat-card {
-  background: var(--white); border-radius: var(--radius);
-  padding: 18px 12px; text-align: center;
-  box-shadow: var(--shadow-sm);
-}
-.stat-icon { font-size: 22px; margin-bottom: 6px; display: block; }
-.stat-value { font-size: 24px; font-weight: 800; color: var(--orange); line-height: 1; margin-bottom: 5px; }
-.stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
-
 /* ── Upload Section ── */
 .upload-section {
   background: var(--white); border-radius: var(--radius);
@@ -206,6 +194,23 @@ html, body {
 }
 .numbers-input:focus { border-color: var(--orange); }
 .numbers-status { font-size: 12px; color: var(--orange); margin-top: 8px; font-weight: 600; min-height: 16px; }
+
+/* ── Schedule Bar ── */
+.schedule-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 12px; flex-wrap: wrap;
+}
+.schedule-label { font-size: 13px; color: var(--muted); font-weight: 600; }
+.date-chips { display: flex; gap: 6px; }
+.date-chip {
+  padding: 6px 16px; border-radius: 999px;
+  border: 1.5px solid var(--border);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  background: var(--white); color: var(--muted);
+  font-family: inherit; transition: all 0.15s;
+}
+.date-chip.active { background: var(--orange); color: white; border-color: var(--orange); }
+.date-chip:not(.active):hover { border-color: var(--orange); color: var(--orange); }
 
 .dropzone {
   display: flex; align-items: center; gap: 12px;
@@ -253,6 +258,7 @@ html, body {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 12px;
 }
+.header-actions { display: flex; align-items: center; gap: 8px; }
 .route-count {
   font-size: 13px; color: var(--orange); font-weight: 600;
   background: var(--orange-light); padding: 4px 10px; border-radius: 999px;
@@ -340,24 +346,63 @@ html, body {
 .detail-grid strong { color: var(--text); display: block; font-weight: 600; font-size: 12px; margin-bottom: 1px; }
 .detail-grid span { font-size: 13px; color: var(--text); }
 
-/* ── History Tab ── */
-.monthly-bar {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--orange); color: white;
-  border-radius: var(--radius); padding: 14px 18px;
-  margin-bottom: 14px;
-}
-.monthly-label { font-size: 14px; font-weight: 500; flex: 1; }
-.monthly-count { font-size: 28px; font-weight: 800; line-height: 1; }
-
-.history-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }
-
-.history-item {
-  background: var(--white); border-radius: var(--radius-sm);
-  padding: 14px 16px;
-  border-left: 4px solid var(--green);
+/* ── Calendar ── */
+.cal-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--white); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 12px;
   box-shadow: var(--shadow-sm);
 }
+.cal-nav-center { text-align: center; flex: 1; }
+.cal-nav-center > span { font-size: 15px; font-weight: 700; display: block; margin-bottom: 2px; }
+.cal-month-count { font-size: 12px; color: var(--orange); font-weight: 600; }
+.cal-nav-btn { padding: 8px 14px; font-size: 20px; line-height: 1; }
+
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  gap: 3px; background: var(--white);
+  border-radius: var(--radius); padding: 14px 10px;
+  box-shadow: var(--shadow-sm); margin-bottom: 12px;
+}
+.cal-header-cell {
+  text-align: center; font-size: 11px; font-weight: 700;
+  color: var(--muted); text-transform: uppercase;
+  padding: 4px 0 8px; letter-spacing: 0.04em;
+}
+.cal-cell {
+  position: relative; text-align: center;
+  padding: 6px 2px; border-radius: 8px;
+  font-size: 14px; font-weight: 500; cursor: default;
+  min-height: 36px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+}
+.cal-cell.has-deliveries { cursor: pointer; font-weight: 700; color: var(--orange); }
+.cal-cell.has-deliveries:hover { background: var(--orange-light); }
+.cal-cell.is-today { background: var(--orange-subtle); border: 1.5px solid rgba(255,107,0,0.4); border-radius: 8px; }
+.cal-cell.is-selected { background: var(--orange) !important; color: white !important; }
+.cal-cell.is-selected .cal-dot { background: white; }
+.cal-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--orange); margin-top: 2px; flex-shrink: 0;
+}
+
+.cal-day-detail {
+  background: var(--white); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 12px;
+}
+.cal-detail-header {
+  padding: 12px 16px; font-weight: 700; font-size: 14px;
+  background: var(--orange-light); color: var(--orange);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── History Items (reused in calendar detail) ── */
+.history-item {
+  background: var(--white); border-radius: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.history-item:last-child { border-bottom: none; }
 .history-addr { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
 .history-meta { font-size: 12px; color: var(--muted); }
 
