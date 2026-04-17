@@ -203,6 +203,16 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/routes') return handleRoutes(req, res, user);
     if (url.pathname === '/api/stats/monthly') return handleStats(req, res, user);
 
+    const itemsMatch = url.pathname.match(/^\/api\/routes\/([^/]+)\/items$/);
+    if (itemsMatch && req.method === 'GET') {
+      const db = await readDb();
+      const routeId = itemsMatch[1];
+      const route = db.routes.find(r => r.id === routeId && r.userId === user.id);
+      if (!route) return sendJson(res, 404, { error: 'Route not found' }, {}, req.headers.origin || '');
+      const items = db.routeItems.filter(it => it.routeId === routeId);
+      return sendJson(res, 200, { items }, {}, req.headers.origin || '');
+    }
+
     return sendJson(res, 404, { error: 'Not Found' }, {}, req.headers.origin || '');
   } catch (error) {
     console.error(error);
@@ -211,6 +221,14 @@ const server = http.createServer(async (req, res) => {
 });
 
 await ensureDb();
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`[api] port ${PORT} already in use — skipping`);
+  } else {
+    console.error('[api] server error:', err);
+    process.exit(1);
+  }
+});
 server.listen(PORT, () => {
   console.log(`API server running on http://localhost:${PORT}`);
 });
