@@ -8,8 +8,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <script type="module" crossorigin src="/assets/index-Sl7lWgYI.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BsgM4Ug-.css">
+    <script type="module" crossorigin src="/assets/index-BSfuk-qy.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index--5cIWgDF.css">
   </head>
   <body>
 
@@ -103,8 +103,14 @@
             <span class="route-count" id="resultCount">0 точек</span>
             <div class="header-actions">
               <button id="yandexRouteBtn" class="btn-secondary btn-sm hidden" type="button">🗺 Маршрут</button>
-              <button id="yandexFavBtn" class="btn-secondary btn-sm hidden" type="button">⭐ Избранное</button>
               <button id="allDeliveredBtn" class="btn-all-delivered hidden" type="button">Все доставлены ✓</button>
+            </div>
+          </div>
+          <div id="progressPanel" class="progress-panel hidden">
+            <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-meta">
+              <span class="progress-count"><span id="progressDone">0</span> / <span id="progressTotal">0</span> доставлено</span>
+              <span class="progress-percent" id="progressPercent">0%</span>
             </div>
           </div>
           <div id="routeList" class="route-list">

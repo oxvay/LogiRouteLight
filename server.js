@@ -5,13 +5,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const dataDir = path.join(__dirname, 'data');
-const dbFile = path.join(dataDir, 'db.json');
-const PORT = Number(process.env.PORT || 3001);
+const __dirname  = path.dirname(__filename);
+const dataDir    = path.join(__dirname, 'data');
+const dbFile     = path.join(dataDir, 'db.json');
+const PORT       = Number(process.env.PORT || 3001);
 
 const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 30;
+
+// ── Utilities ─────────────────────────────────────────────
+
+const hashPassword = (password) => crypto.createHash('sha256').update(password).digest('hex');
+const makeId       = (prefix) => `${prefix}_${crypto.randomUUID()}`;
+const monthKey     = (date = new Date()) => date.toISOString().slice(0, 7);
 
 function buildJsonHeaders(origin = '') {
   return {
@@ -23,65 +29,8 @@ function buildJsonHeaders(origin = '') {
   };
 }
 
-async function ensureDb() {
-  await fs.mkdir(dataDir, { recursive: true });
-  try {
-    await fs.access(dbFile);
-  } catch {
-    const seed = {
-      users: [
-        {
-          id: 'user-driver',
-          login: 'driver',
-          passwordHash: hashPassword('driver123'),
-          role: 'driver',
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: 'user-admin-root',
-          login: 'admin',
-          passwordHash: hashPassword('admin123'),
-          role: 'admin',
-          createdAt: new Date().toISOString()
-        }
-      ],
-      sessions: [],
-      routes: [],
-      routeItems: [],
-      monthlyStats: []
-    };
-    await fs.writeFile(dbFile, JSON.stringify(seed, null, 2), 'utf8');
-  }
-}
-
-async function readDb() {
-  await ensureDb();
-  return JSON.parse(await fs.readFile(dbFile, 'utf8'));
-}
-
-async function writeDb(db) {
-  await fs.writeFile(dbFile, JSON.stringify(db, null, 2), 'utf8');
-}
-
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password).digest('hex');
-}
-
-function makeId(prefix) {
-  return `${prefix}_${crypto.randomUUID()}`;
-}
-
-function parseCookies(cookieHeader = '') {
-  return cookieHeader.split(';').reduce((acc, pair) => {
-    const [key, ...rest] = pair.trim().split('=');
-    if (!key) return acc;
-    acc[key] = decodeURIComponent(rest.join('='));
-    return acc;
-  }, {});
-}
-
-function sendJson(res, statusCode, payload, extraHeaders = {}, origin = '') {
-  res.writeHead(statusCode, { ...buildJsonHeaders(origin), ...extraHeaders });
+function reply(req, res, statusCode, payload, extraHeaders = {}) {
+  res.writeHead(statusCode, { ...buildJsonHeaders(req.headers.origin || ''), ...extraHeaders });
   res.end(JSON.stringify(payload));
 }
 
@@ -92,24 +41,50 @@ async function readBody(req) {
   return raw ? JSON.parse(raw) : {};
 }
 
+function parseCookies(cookieHeader = '') {
+  return cookieHeader.split(';').reduce((acc, pair) => {
+    const [key, ...rest] = pair.trim().split('=');
+    if (key) acc[key] = decodeURIComponent(rest.join('='));
+    return acc;
+  }, {});
+}
+
 function getSessionToken(req) {
-  const cookies = parseCookies(req.headers.cookie || '');
   const auth = req.headers.authorization;
   if (auth?.startsWith('Bearer ')) return auth.slice(7);
-  return cookies.sessionToken || '';
+  return parseCookies(req.headers.cookie || '').sessionToken || '';
 }
+
+// ── DB ────────────────────────────────────────────────────
+
+async function ensureDb() {
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    await fs.access(dbFile);
+  } catch {
+    const seed = {
+      users: [{
+        id: 'user-admin-root',
+        login: 'admin',
+        passwordHash: hashPassword('ProDrive'),
+        role: 'admin',
+        createdAt: new Date().toISOString()
+      }],
+      sessions: [], routes: [], routeItems: [], monthlyStats: []
+    };
+    await fs.writeFile(dbFile, JSON.stringify(seed, null, 2), 'utf8');
+  }
+}
+
+async function readDb()       { await ensureDb(); return JSON.parse(await fs.readFile(dbFile, 'utf8')); }
+async function writeDb(db)    { await fs.writeFile(dbFile, JSON.stringify(db, null, 2), 'utf8'); }
 
 async function getCurrentUser(req) {
   const token = getSessionToken(req);
   if (!token) return null;
   const db = await readDb();
-  const session = db.sessions.find((item) => item.token === token && new Date(item.expiresAt) > new Date());
-  if (!session) return null;
-  return db.users.find((user) => user.id === session.userId) || null;
-}
-
-function monthKey(date = new Date()) {
-  return date.toISOString().slice(0, 7);
+  const session = db.sessions.find((s) => s.token === token && new Date(s.expiresAt) > new Date());
+  return session ? db.users.find((u) => u.id === session.userId) || null : null;
 }
 
 // ── Auth ──────────────────────────────────────────────────
@@ -117,24 +92,20 @@ function monthKey(date = new Date()) {
 async function handleLogin(req, res) {
   const { login, password } = await readBody(req);
   const db = await readDb();
-  const normalizedLogin    = String(login    || '').trim();
-  const normalizedPassword = String(password || '').trim();
   const user = db.users.find(
-    (item) => item.login === normalizedLogin && item.passwordHash === hashPassword(normalizedPassword)
+    (u) => u.login === String(login || '').trim() && u.passwordHash === hashPassword(String(password || '').trim())
   );
-  if (!user) return sendJson(res, 401, { error: 'Неверный логин или пароль' }, {}, req.headers.origin || '');
+  if (!user) return reply(req, res, 401, { error: 'Неверный логин или пароль' });
 
-  const token    = makeId('sess');
+  const token     = makeId('sess');
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
-  db.sessions = db.sessions.filter((item) => item.userId !== user.id);
+  db.sessions = db.sessions.filter((s) => s.userId !== user.id);
   db.sessions.push({ id: makeId('session'), userId: user.id, token, expiresAt });
   await writeDb(db);
 
-  return sendJson(
-    res, 200,
+  return reply(req, res, 200,
     { user: { id: user.id, login: user.login, role: user.role }, token },
-    { 'Set-Cookie': `sessionToken=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${SESSION_MAX_AGE_SEC}` },
-    req.headers.origin || ''
+    { 'Set-Cookie': `sessionToken=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${SESSION_MAX_AGE_SEC}` }
   );
 }
 
@@ -145,11 +116,14 @@ async function handleLogout(req, res) {
     db.sessions = db.sessions.filter((s) => s.token !== token);
     await writeDb(db);
   }
-  return sendJson(
-    res, 200, { ok: true },
-    { 'Set-Cookie': 'sessionToken=; HttpOnly; Path=/; Max-Age=0' },
-    req.headers.origin || ''
-  );
+  return reply(req, res, 200, { ok: true },
+    { 'Set-Cookie': 'sessionToken=; HttpOnly; Path=/; Max-Age=0' });
+}
+
+async function handleMe(req, res) {
+  const user = await getCurrentUser(req);
+  if (!user) return reply(req, res, 401, { error: 'Unauthorized' });
+  return reply(req, res, 200, { user: { id: user.id, login: user.login, role: user.role } });
 }
 
 // ── Routes ────────────────────────────────────────────────
@@ -162,12 +136,9 @@ async function handleRoutes(req, res, user) {
     const date  = url.searchParams.get('date');
     const month = url.searchParams.get('month');
     const routes = db.routes.filter(
-      (r) =>
-        r.userId === user.id &&
-        (!date  || r.routeDate === date) &&
-        (!month || r.routeDate.startsWith(month))
+      (r) => r.userId === user.id && (!date || r.routeDate === date) && (!month || r.routeDate.startsWith(month))
     );
-    return sendJson(res, 200, { routes }, {}, req.headers.origin || '');
+    return reply(req, res, 200, { routes });
   }
 
   if (req.method === 'POST') {
@@ -175,9 +146,7 @@ async function handleRoutes(req, res, user) {
     const routeId   = makeId('route');
     const routeDate = body.routeDate || new Date().toISOString().slice(0, 10);
     const route = {
-      id: routeId,
-      userId: user.id,
-      routeDate,
+      id: routeId, userId: user.id, routeDate,
       sourceFileName: body.sourceFileName || '',
       status: body.status || 'active',
       createdAt: new Date().toISOString()
@@ -186,38 +155,39 @@ async function handleRoutes(req, res, user) {
     for (const item of body.items || []) {
       db.routeItems.push({ id: makeId('item'), routeId, ...item });
     }
-    const key  = `${user.id}:${monthKey(new Date(routeDate))}`;
-    const stat = db.monthlyStats.find((s) => s.key === key) || {
-      id: makeId('stat'), key, userId: user.id,
-      month: monthKey(new Date(routeDate)), completedRoutesCount: 0
-    };
-    if (!db.monthlyStats.find((s) => s.key === key)) db.monthlyStats.push(stat);
+    const month = monthKey(new Date(routeDate));
+    const key   = `${user.id}:${month}`;
+    if (!db.monthlyStats.find((s) => s.key === key)) {
+      db.monthlyStats.push({ id: makeId('stat'), key, userId: user.id, month, completedRoutesCount: 0 });
+    }
     await writeDb(db);
-    return sendJson(res, 201, { route }, {}, req.headers.origin || '');
+    return reply(req, res, 201, { route });
   }
 
-  return sendJson(res, 405, { error: 'Method Not Allowed' }, {}, req.headers.origin || '');
+  return reply(req, res, 405, { error: 'Method Not Allowed' });
+}
+
+async function handleRouteItems(req, res, user, routeId) {
+  if (req.method !== 'GET') return reply(req, res, 405, { error: 'Method Not Allowed' });
+  const db = await readDb();
+  const route = db.routes.find((r) => r.id === routeId && r.userId === user.id);
+  if (!route) return reply(req, res, 404, { error: 'Route not found' });
+  return reply(req, res, 200, { items: db.routeItems.filter((it) => it.routeId === routeId) });
 }
 
 async function handleStats(req, res, user) {
-  const db   = await readDb();
+  const db    = await readDb();
   const month = monthKey();
   const stat  = db.monthlyStats.find((s) => s.userId === user.id && s.month === month) || { completedRoutesCount: 0 };
-  return sendJson(res, 200, { month, completedRoutesCount: stat.completedRoutesCount }, {}, req.headers.origin || '');
-}
-
-async function handleMe(req, res) {
-  const user = await getCurrentUser(req);
-  if (!user) return sendJson(res, 401, { error: 'Unauthorized' }, {}, req.headers.origin || '');
-  return sendJson(res, 200, { user: { id: user.id, login: user.login, role: user.role } }, {}, req.headers.origin || '');
+  return reply(req, res, 200, { month, completedRoutesCount: stat.completedRoutesCount });
 }
 
 // ── Admin ─────────────────────────────────────────────────
 
-function requireAdmin(user) { return user && user.role === 'admin'; }
+const requireAdmin = (user) => user?.role === 'admin';
 
 async function handleAdminUsers(req, res, adminUser) {
-  if (!requireAdmin(adminUser)) return sendJson(res, 403, { error: 'Forbidden' }, {}, req.headers.origin || '');
+  if (!requireAdmin(adminUser)) return reply(req, res, 403, { error: 'Forbidden' });
   const db = await readDb();
 
   if (req.method === 'GET') {
@@ -225,14 +195,14 @@ async function handleAdminUsers(req, res, adminUser) {
       id: u.id, login: u.login, role: u.role, createdAt: u.createdAt,
       routeCount: db.routes.filter((r) => r.userId === u.id).length
     }));
-    return sendJson(res, 200, { users }, {}, req.headers.origin || '');
+    return reply(req, res, 200, { users });
   }
 
   if (req.method === 'POST') {
     const { login, password, role } = await readBody(req);
-    if (!login || !password) return sendJson(res, 400, { error: 'Логин и пароль обязательны' }, {}, req.headers.origin || '');
+    if (!login || !password) return reply(req, res, 400, { error: 'Логин и пароль обязательны' });
     const trimmed = String(login).trim();
-    if (db.users.find((u) => u.login === trimmed)) return sendJson(res, 409, { error: 'Логин уже занят' }, {}, req.headers.origin || '');
+    if (db.users.find((u) => u.login === trimmed)) return reply(req, res, 409, { error: 'Логин уже занят' });
     const newUser = {
       id: makeId('user'), login: trimmed,
       passwordHash: hashPassword(String(password)),
@@ -241,46 +211,46 @@ async function handleAdminUsers(req, res, adminUser) {
     };
     db.users.push(newUser);
     await writeDb(db);
-    return sendJson(res, 201, { user: { id: newUser.id, login: newUser.login, role: newUser.role } }, {}, req.headers.origin || '');
+    return reply(req, res, 201, { user: { id: newUser.id, login: newUser.login, role: newUser.role } });
   }
 
-  return sendJson(res, 405, { error: 'Method Not Allowed' }, {}, req.headers.origin || '');
+  return reply(req, res, 405, { error: 'Method Not Allowed' });
 }
 
 async function handleAdminUserById(req, res, adminUser, userId) {
-  if (!requireAdmin(adminUser)) return sendJson(res, 403, { error: 'Forbidden' }, {}, req.headers.origin || '');
+  if (!requireAdmin(adminUser)) return reply(req, res, 403, { error: 'Forbidden' });
   const db     = await readDb();
   const target = db.users.find((u) => u.id === userId);
-  if (!target) return sendJson(res, 404, { error: 'Пользователь не найден' }, {}, req.headers.origin || '');
+  if (!target) return reply(req, res, 404, { error: 'Пользователь не найден' });
 
   if (req.method === 'DELETE') {
-    if (userId === adminUser.id) return sendJson(res, 400, { error: 'Нельзя удалить себя' }, {}, req.headers.origin || '');
-    db.users      = db.users.filter((u) => u.id !== userId);
-    db.sessions   = db.sessions.filter((s) => s.userId !== userId);
+    if (userId === adminUser.id) return reply(req, res, 400, { error: 'Нельзя удалить себя' });
     const routeIds = db.routes.filter((r) => r.userId === userId).map((r) => r.id);
-    db.routes      = db.routes.filter((r) => r.userId !== userId);
-    db.routeItems  = db.routeItems.filter((ri) => !routeIds.includes(ri.routeId));
+    db.users        = db.users.filter((u) => u.id !== userId);
+    db.sessions     = db.sessions.filter((s) => s.userId !== userId);
+    db.routes       = db.routes.filter((r) => r.userId !== userId);
+    db.routeItems   = db.routeItems.filter((ri) => !routeIds.includes(ri.routeId));
     db.monthlyStats = db.monthlyStats.filter((s) => s.userId !== userId);
     await writeDb(db);
-    return sendJson(res, 200, { ok: true }, {}, req.headers.origin || '');
+    return reply(req, res, 200, { ok: true });
   }
 
-  return sendJson(res, 405, { error: 'Method Not Allowed' }, {}, req.headers.origin || '');
+  return reply(req, res, 405, { error: 'Method Not Allowed' });
 }
 
 async function handleAdminUserClear(req, res, adminUser, userId) {
-  if (!requireAdmin(adminUser)) return sendJson(res, 403, { error: 'Forbidden' }, {}, req.headers.origin || '');
-  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method Not Allowed' }, {}, req.headers.origin || '');
+  if (!requireAdmin(adminUser)) return reply(req, res, 403, { error: 'Forbidden' });
+  if (req.method !== 'POST')    return reply(req, res, 405, { error: 'Method Not Allowed' });
   const db     = await readDb();
   const target = db.users.find((u) => u.id === userId);
-  if (!target) return sendJson(res, 404, { error: 'Пользователь не найден' }, {}, req.headers.origin || '');
-  const routeIds  = db.routes.filter((r) => r.userId === userId).map((r) => r.id);
+  if (!target) return reply(req, res, 404, { error: 'Пользователь не найден' });
+  const routeIds = db.routes.filter((r) => r.userId === userId).map((r) => r.id);
   db.routes       = db.routes.filter((r) => r.userId !== userId);
   db.routeItems   = db.routeItems.filter((ri) => !routeIds.includes(ri.routeId));
   db.monthlyStats = db.monthlyStats.filter((s) => s.userId !== userId);
   db.sessions     = db.sessions.filter((s) => s.userId !== userId);
   await writeDb(db);
-  return sendJson(res, 200, { ok: true }, {}, req.headers.origin || '');
+  return reply(req, res, 200, { ok: true });
 }
 
 // ── Router ────────────────────────────────────────────────
@@ -292,49 +262,38 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     const url = new URL(req.url, 'http://localhost');
+    const path = url.pathname;
 
-    if (req.method === 'POST' && url.pathname === '/api/login')  return handleLogin(req, res);
-    if (req.method === 'POST' && url.pathname === '/api/logout') return handleLogout(req, res);
-    if (url.pathname === '/api/me') return handleMe(req, res);
+    if (req.method === 'POST' && path === '/api/login')  return handleLogin(req, res);
+    if (req.method === 'POST' && path === '/api/logout') return handleLogout(req, res);
+    if (path === '/api/me') return handleMe(req, res);
 
     const user = await getCurrentUser(req);
-    if (!user) return sendJson(res, 401, { error: 'Unauthorized' }, {}, req.headers.origin || '');
+    if (!user) return reply(req, res, 401, { error: 'Unauthorized' });
 
-    if (url.pathname === '/api/routes')        return handleRoutes(req, res, user);
-    if (url.pathname === '/api/stats/monthly') return handleStats(req, res, user);
+    if (path === '/api/routes')        return handleRoutes(req, res, user);
+    if (path === '/api/stats/monthly') return handleStats(req, res, user);
+    if (path === '/api/admin/users')   return handleAdminUsers(req, res, user);
 
-    const itemsMatch = url.pathname.match(/^\/api\/routes\/([^/]+)\/items$/);
-    if (itemsMatch && req.method === 'GET') {
-      const db      = await readDb();
-      const routeId = itemsMatch[1];
-      const route   = db.routes.find((r) => r.id === routeId && r.userId === user.id);
-      if (!route) return sendJson(res, 404, { error: 'Route not found' }, {}, req.headers.origin || '');
-      const items = db.routeItems.filter((it) => it.routeId === routeId);
-      return sendJson(res, 200, { items }, {}, req.headers.origin || '');
-    }
+    const itemsMatch = path.match(/^\/api\/routes\/([^/]+)\/items$/);
+    if (itemsMatch) return handleRouteItems(req, res, user, itemsMatch[1]);
 
-    if (url.pathname === '/api/admin/users') return handleAdminUsers(req, res, user);
-
-    const adminUserMatch  = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
-    if (adminUserMatch)  return handleAdminUserById(req, res, user, adminUserMatch[1]);
-
-    const adminClearMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/clear$/);
+    const adminClearMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/clear$/);
     if (adminClearMatch) return handleAdminUserClear(req, res, user, adminClearMatch[1]);
 
-    return sendJson(res, 404, { error: 'Not Found' }, {}, req.headers.origin || '');
+    const adminUserMatch  = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (adminUserMatch)   return handleAdminUserById(req, res, user, adminUserMatch[1]);
+
+    return reply(req, res, 404, { error: 'Not Found' });
   } catch (error) {
     console.error(error);
-    return sendJson(res, 500, { error: 'Internal Server Error' }, {}, req.headers.origin || '');
+    return reply(req, res, 500, { error: 'Internal Server Error' });
   }
 });
 
 await ensureDb();
 server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.log(`[api] port ${PORT} already in use — skipping`);
-  } else {
-    console.error('[api] server error:', err);
-    process.exit(1);
-  }
+  if (err.code === 'EADDRINUSE') console.log(`[api] port ${PORT} already in use — skipping`);
+  else { console.error('[api] server error:', err); process.exit(1); }
 });
 server.listen(PORT, () => console.log(`API server running on http://localhost:${PORT}`));

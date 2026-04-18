@@ -37,7 +37,6 @@ const routeList      = document.getElementById('routeList');
 const resultCount    = document.getElementById('resultCount');
 const allDeliveredBtn= document.getElementById('allDeliveredBtn');
 const yandexRouteBtn = document.getElementById('yandexRouteBtn');
-const yandexFavBtn   = document.getElementById('yandexFavBtn');
 const tabRouteBtn    = document.getElementById('tabRouteBtn');
 const tabHistoryBtn  = document.getElementById('tabHistoryBtn');
 const historyBadge   = document.getElementById('historyBadge');
@@ -53,6 +52,11 @@ const calDayDetail   = document.getElementById('calDayDetail');
 const calMonthLabel  = document.getElementById('calMonthLabel');
 const calPrevBtn     = document.getElementById('calPrevBtn');
 const calNextBtn     = document.getElementById('calNextBtn');
+const progressPanel  = document.getElementById('progressPanel');
+const progressFill   = document.getElementById('progressFill');
+const progressDone   = document.getElementById('progressDone');
+const progressTotal  = document.getElementById('progressTotal');
+const progressPercent= document.getElementById('progressPercent');
 
 // Admin DOM
 const adminPanel        = document.getElementById('adminPanel');
@@ -95,8 +99,7 @@ saveNumbersBtn.addEventListener('click', saveNumbers);
 addRouteBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
 allDeliveredBtn.addEventListener('click', markAllDelivered);
-yandexRouteBtn.addEventListener('click', buildYandexRoute);
-yandexFavBtn.addEventListener('click', addToYandexFavorites);
+yandexRouteBtn.addEventListener('click', e => { e.stopPropagation(); openRouteMenu(yandexRouteBtn); });
 tabRouteBtn.addEventListener('click',   () => switchTab('routeTab'));
 tabHistoryBtn.addEventListener('click', () => switchTab('historyTab'));
 routeDatePicker.addEventListener('change', () => onDatePickerChange());
@@ -204,7 +207,7 @@ function showAuth() {
   authPanel.classList.remove('hidden');
   appPanel.classList.add('hidden');
   adminPanel.classList.add('hidden');
-  setAuthMsg('Демо: driver / driver123 | admin / admin123', false);
+  setAuthMsg('', false);
   loginInput.value = ''; passwordInput.value = '';
 }
 
@@ -354,14 +357,17 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getFilterSuffixes() {
+function readNumbersMap() {
   try {
-    const all = JSON.parse(localStorage.getItem(lsKey(LS_NUMBERS)) || '{}');
-    // support legacy format { date, suffixes }
-    if (Array.isArray(all.suffixes) && all.date === selectedUploadDate) return all.suffixes;
-    return all[selectedUploadDate] || [];
-  } catch { /* ignore */ }
-  return [];
+    const v = JSON.parse(localStorage.getItem(lsKey(LS_NUMBERS)) || '{}');
+    // Legacy { date, suffixes } → treat as a single-day map
+    if (Array.isArray(v.suffixes)) return v.date ? { [v.date]: v.suffixes } : {};
+    return v && typeof v === 'object' ? v : {};
+  } catch { return {}; }
+}
+
+function getFilterSuffixes() {
+  return readNumbersMap()[selectedUploadDate] || [];
 }
 
 function loadSavedNumbers() {
@@ -374,7 +380,7 @@ function loadSavedNumbers() {
 function saveNumbers() {
   const suffixes = parseFilterInput(numbersInput.value);
   if (!suffixes.length) { numbersStatus.textContent = 'Введите хотя бы одно число'; return; }
-  const all = (() => { try { const v = JSON.parse(localStorage.getItem(lsKey(LS_NUMBERS)) || '{}'); return typeof v === 'object' && !Array.isArray(v) && !v.suffixes ? v : {}; } catch { return {}; } })();
+  const all = readNumbersMap();
   all[selectedUploadDate] = suffixes;
   localStorage.setItem(lsKey(LS_NUMBERS), JSON.stringify(all));
   showNumbersStatus(suffixes);
@@ -576,13 +582,94 @@ function renderRoute(rows) {
   resultCount.textContent = `${pointCount} точек`;
   allDeliveredBtn.classList.toggle('hidden', !rows.length);
   yandexRouteBtn.classList.toggle('hidden', !rows.length);
-  yandexFavBtn.classList.toggle('hidden', !rows.length);
+  progressPanel.classList.toggle('hidden', !rows.length);
   if (!rows.length) {
     routeList.innerHTML = '<div class="empty-state">Совпадений не найдено</div>';
+    updateProgress();
     return;
   }
   routeList.innerHTML = '';
   routeGroups.forEach((group, gIdx) => routeList.appendChild(createGroupCard(group, gIdx)));
+  updateProgress();
+}
+
+// ── Live progress ────────────────────────────────────────
+function updateProgress() {
+  const total = routeGroups.length;
+  const done  = routeGroups.filter(g => g.every(({ row }) => row._status === 'delivered')).length;
+  const pct   = total ? Math.round((done / total) * 100) : 0;
+  progressDone.textContent    = String(done);
+  progressTotal.textContent   = String(total);
+  progressPercent.textContent = `${pct}%`;
+  progressFill.style.width    = `${pct}%`;
+}
+
+// ── Tap-to-call: extract Russian phone numbers from free-form text ─
+function extractPhones(text) {
+  if (!text) return [];
+  const re = /(\+?[78])([\s\-.()\u00A0]*(?:\d[\s\-.()\u00A0]*)){10}/g;
+  const phones = [];
+  const seen = new Set();
+  const matches = String(text).match(re) || [];
+  for (const match of matches) {
+    const digits = match.replace(/\D/g, '');
+    if (digits.length < 11) continue;
+    const tel = '+7' + digits.slice(-10);
+    if (seen.has(tel)) continue;
+    seen.add(tel);
+    phones.push({ display: match.trim(), tel });
+  }
+  return phones;
+}
+
+function collectGroupPhones(group) {
+  const phones = [];
+  const seen = new Set();
+  for (const { row } of group) {
+    for (const p of extractPhones(row.comment)) {
+      if (!seen.has(p.tel)) { seen.add(p.tel); phones.push(p); }
+    }
+  }
+  return phones;
+}
+
+// ── Popup menu (for call / route choice) ──────────────────
+function closePopups() {
+  document.querySelectorAll('.popup-menu').forEach(el => el.remove());
+}
+
+function showPopupMenu(anchor, items) {
+  closePopups();
+  const menu = document.createElement('div');
+  menu.className = 'popup-menu';
+  menu.innerHTML = items.map(it => {
+    const href = it.href ? ` href="${it.href}"` : ' href="#"';
+    const target = it.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+    return `<a${href}${target} class="popup-menu-item">${it.icon || ''} ${escapeHtml(it.label)}</a>`;
+  }).join('');
+  document.body.appendChild(menu);
+
+  // Position below/near anchor, right-aligned, clamped to viewport
+  const rect = anchor.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 8)}px`;
+  const right = Math.max(8, window.innerWidth - rect.right);
+  menu.style.right = `${right}px`;
+
+  // Close on outside click / scroll / esc
+  const onOutside = (ev) => {
+    if (!menu.contains(ev.target)) closePopups();
+  };
+  const onEsc = (ev) => { if (ev.key === 'Escape') closePopups(); };
+  setTimeout(() => {
+    document.addEventListener('click', onOutside, { once: true });
+    document.addEventListener('keydown', onEsc, { once: true });
+  }, 0);
+  menu.addEventListener('click', e => {
+    // Let tel: / external links navigate normally, then close
+    setTimeout(closePopups, 0);
+    if (e.target.closest('a[href="#"]')) e.preventDefault();
+  });
 }
 
 // ── Link opener (works on mobile — avoids popup blocker) ──
@@ -604,24 +691,26 @@ function showToast(msg, ms = 2800) {
   el._t = setTimeout(() => el.classList.remove('visible'), ms);
 }
 
-// ── Yandex Multi-point Route ──────────────────────────────
-function buildYandexRoute() {
-  const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
-  if (!addrs.length) return;
-  openLink(`https://yandex.ru/maps/?rtext=${addrs.map(a => encodeURIComponent(a)).join('~')}&rtt=auto`);
+// ── Multi-point Route (menu: Yandex / Google Maps) ────────
+function buildRouteUrls(addrs) {
+  const yandex = `https://yandex.ru/maps/?mode=routes&rtext=${addrs.map(a => encodeURIComponent(a)).join('~')}&rtt=auto`;
+  // Google Maps supports up to 9 waypoints + destination reliably
+  const last = addrs[addrs.length - 1];
+  const waypoints = addrs.slice(0, -1).map(encodeURIComponent).join('|');
+  const google = waypoints
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(last)}&waypoints=${waypoints}&travelmode=driving`
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(last)}&travelmode=driving`;
+  return { yandex, google };
 }
 
-// ── Add all addresses to Yandex Favorites ────────────────
-async function addToYandexFavorites() {
+function openRouteMenu(anchor) {
   const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
   if (!addrs.length) return;
-  const text = addrs.map((a, i) => `${i + 1}. ${a}`).join('\n');
-  try {
-    await navigator.clipboard.writeText(text);
-    showToast(`${addrs.length} адресов скопировано — вставьте в Яндекс Карты`);
-  } catch {
-    showToast('Откройте Яндекс Карты и добавьте адреса вручную');
-  }
+  const { yandex, google } = buildRouteUrls(addrs);
+  showPopupMenu(anchor, [
+    { label: 'Яндекс Карты',  icon: '🗺', href: yandex, external: true },
+    { label: 'Google Maps',   icon: '🗺', href: google, external: true }
+  ]);
 }
 
 // ── Group Card ────────────────────────────────────────────
@@ -692,6 +781,13 @@ function createGroupCard(group, gIdx) {
     ? `<button class="delivered-btn${allDel ? ' is-delivered' : ''}" type="button" data-group-delivered>✓</button>`
     : '';
 
+  const phones = collectGroupPhones(group);
+  const callBtn = phones.length
+    ? (phones.length === 1
+        ? `<a class="call-btn" href="tel:${phones[0].tel}" type="button" aria-label="Позвонить">📞</a>`
+        : `<button class="call-btn has-count" type="button" aria-label="Позвонить" data-call-multi>📞<span class="call-count">${phones.length}</span></button>`)
+    : '';
+
   card.innerHTML = `
     <div class="card-main">
       <div class="drag-handle-icon" aria-hidden="true">
@@ -710,6 +806,7 @@ function createGroupCard(group, gIdx) {
       </div>
       <div class="route-actions">
         ${headerDeliveredBtn}
+        ${callBtn}
         <button class="maps-btn" type="button">Maps</button>
       </div>
     </div>
@@ -744,6 +841,7 @@ function createGroupCard(group, gIdx) {
       });
       groupDeliveredBtn.classList.toggle('is-delivered', !isDel);
       refreshBadge();
+      updateProgress();
       renderCalendar();
     });
   }
@@ -762,6 +860,7 @@ function createGroupCard(group, gIdx) {
       persistStatus(rowIdx, row._status);
       if (!isDel) addToHistory(row, rowIdx); else removeFromHistory(rowIdx);
       refreshBadge();
+      updateProgress();
       renderCalendar();
     });
   });
@@ -771,6 +870,21 @@ function createGroupCard(group, gIdx) {
     e.stopPropagation();
     openLink(yandex);
   });
+
+  // Call button: single phone → native tel link, multiple → popup menu
+  const callEl = card.querySelector('.call-btn');
+  if (callEl) {
+    callEl.addEventListener('click', e => {
+      e.stopPropagation();
+      if (callEl.dataset.callMulti !== undefined) {
+        e.preventDefault();
+        showPopupMenu(callEl, phones.map(p => ({
+          icon: '📞', label: p.display, href: `tel:${p.tel}`
+        })));
+      }
+      // single-phone <a href="tel:..."> navigates natively
+    });
+  }
 
   // Desktop drag-and-drop
   card.addEventListener('dragstart', onGroupDragStart);
