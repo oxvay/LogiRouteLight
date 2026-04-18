@@ -1,6 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,6 +10,43 @@ const __dirname  = path.dirname(__filename);
 const dataDir    = path.join(__dirname, 'data');
 const dbFile     = path.join(dataDir, 'db.json');
 const PORT       = Number(process.env.PORT || 3001);
+const distDir    = path.join(__dirname, 'dist');
+
+const STATIC_MIME = {
+  '.html':  'text/html; charset=utf-8',
+  '.js':    'application/javascript; charset=utf-8',
+  '.css':   'text/css; charset=utf-8',
+  '.json':  'application/json',
+  '.png':   'image/png',
+  '.jpg':   'image/jpeg',
+  '.svg':   'image/svg+xml',
+  '.ico':   'image/x-icon',
+  '.woff':  'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf':   'font/ttf',
+};
+
+async function serveStatic(req, res, pathname) {
+  const safe = path.normalize(pathname).replace(/^(\.\.[\\/])+/, '');
+  let filePath = path.join(distDir, safe || 'index.html');
+  if (!filePath.startsWith(distDir)) { res.writeHead(403); res.end(); return; }
+  try {
+    const st = await fs.stat(filePath);
+    if (st.isDirectory()) filePath = path.join(filePath, 'index.html');
+  } catch {
+    filePath = path.join(distDir, 'index.html'); // SPA fallback
+  }
+  const ext  = path.extname(filePath);
+  const mime = STATIC_MIME[ext] || 'application/octet-stream';
+  const cc   = safe.startsWith('assets/') ? 'public, max-age=31536000, immutable' : 'no-cache';
+  try {
+    const st = await fs.stat(filePath);
+    res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': cc, 'Content-Length': st.size });
+    createReadStream(filePath).pipe(res);
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found');
+  }
+}
 
 const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 30;
@@ -284,6 +322,7 @@ const server = http.createServer(async (req, res) => {
     const adminUserMatch  = path.match(/^\/api\/admin\/users\/([^/]+)$/);
     if (adminUserMatch)   return handleAdminUserById(req, res, user, adminUserMatch[1]);
 
+    if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, path);
     return reply(req, res, 404, { error: 'Not Found' });
   } catch (error) {
     console.error(error);
