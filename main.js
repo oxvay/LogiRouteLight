@@ -294,40 +294,51 @@ function onDatePickerChange() {
   if (!val) return;
   selectedUploadDate = val;
   routeDatePicker.classList.toggle('is-today', val === todayStr());
+  loadSavedNumbers();
   loadRouteForDate(val);
 }
 
 function shiftPickerDate(delta) {
   const current = routeDatePicker.value || todayStr();
-  const d = new Date(current + 'T00:00:00');
-  d.setDate(d.getDate() + delta);
-  const next = d.toISOString().slice(0, 10);
+  const [y, m, d] = current.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + delta); // local arithmetic, no UTC shift
+  const next = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   routeDatePicker.value = next;
   selectedUploadDate = next;
   routeDatePicker.classList.toggle('is-today', next === todayStr());
+  loadSavedNumbers();
   loadRouteForDate(next);
 }
 
 // ── Numbers Filter ────────────────────────────────────────
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function getFilterSuffixes() {
   try {
-    const saved = JSON.parse(localStorage.getItem(lsKey(LS_NUMBERS)) || 'null');
-    if (saved?.date === todayStr()) return saved.suffixes;
+    const all = JSON.parse(localStorage.getItem(lsKey(LS_NUMBERS)) || '{}');
+    // support legacy format { date, suffixes }
+    if (Array.isArray(all.suffixes) && all.date === selectedUploadDate) return all.suffixes;
+    return all[selectedUploadDate] || [];
   } catch { /* ignore */ }
   return [];
 }
 
 function loadSavedNumbers() {
   const suffixes = getFilterSuffixes();
-  if (suffixes.length) { numbersInput.value = suffixes.join(', '); showNumbersStatus(suffixes); }
+  numbersInput.value = suffixes.length ? suffixes.join(', ') : '';
+  numbersStatus.textContent = '';
+  if (suffixes.length) showNumbersStatus(suffixes);
 }
 
 function saveNumbers() {
   const suffixes = parseFilterInput(numbersInput.value);
   if (!suffixes.length) { numbersStatus.textContent = 'Введите хотя бы одно число'; return; }
-  localStorage.setItem(lsKey(LS_NUMBERS), JSON.stringify({ date: todayStr(), suffixes }));
+  const all = (() => { try { const v = JSON.parse(localStorage.getItem(lsKey(LS_NUMBERS)) || '{}'); return typeof v === 'object' && !Array.isArray(v) && !v.suffixes ? v : {}; } catch { return {}; } })();
+  all[selectedUploadDate] = suffixes;
+  localStorage.setItem(lsKey(LS_NUMBERS), JSON.stringify(all));
   showNumbersStatus(suffixes);
 }
 
@@ -496,11 +507,20 @@ async function saveRoute(sourceFileName, items) {
 }
 
 // ── Address Grouping ──────────────────────────────────────
+function normalizeAddress(addr) {
+  return (addr || '')
+    .trim()
+    .replace(/^\d{6}[\s,]+/, '') // strip leading 6-digit postal code (e.g. "143444 ")
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
+
 function groupRowsByAddress(rows) {
   const groups  = [];
   const keyMap  = new Map(); // normalised address → group index
   rows.forEach((row, idx) => {
-    const key = (row.deliveryAddress || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const key = normalizeAddress(row.deliveryAddress);
     if (keyMap.has(key)) {
       groups[keyMap.get(key)].push({ row, idx });
     } else {
@@ -547,8 +567,7 @@ function groupInfoEqual(group) {
     row.buyer          === ref.buyer &&
     row.comment        === ref.comment &&
     row.responsible    === ref.responsible &&
-    row.deliveryService=== ref.deliveryService &&
-    row.orderId        === ref.orderId
+    row.deliveryService=== ref.deliveryService
   );
 }
 
@@ -584,14 +603,12 @@ function createGroupCard(group, gIdx) {
     // Single item: full detail grid
     detailsHtml = detailGridHtml(firstRow, address);
   } else if (sameInfo) {
-    // Multiple items with identical info: shared grid + order list
+    // Merged: shared info once + invoice numbers as text list
+    const invoiceNums = group.map(({ row }) => escapeHtml(row.orderNumber || '—')).join(', ');
     detailsHtml = detailGridHtml(firstRow, address) + `
-      <div class="group-orders">
-        ${group.map(({ row, idx }) => `
-          <div class="group-order-row" data-row-idx="${idx}">
-            <span class="group-order-num">Накл: ${escapeHtml(row.orderNumber || '—')}</span>
-            <button class="delivered-btn${row._status === 'delivered' ? ' is-delivered' : ''}" data-row-idx="${idx}" type="button">✓</button>
-          </div>`).join('')}
+      <div class="group-invoice-list">
+        <span class="group-invoice-label">Накладные:</span>
+        <span class="group-invoice-nums">${invoiceNums}</span>
       </div>`;
   } else {
     // Multiple items with different info: separate sections per item
@@ -605,8 +622,8 @@ function createGroupCard(group, gIdx) {
       </div>`).join('');
   }
 
-  const singleDeliveredBtn = !isMulti
-    ? `<button class="delivered-btn${firstRow._status === 'delivered' ? ' is-delivered' : ''}" type="button" data-single>✓</button>`
+  const headerDeliveredBtn = (!isMulti || sameInfo)
+    ? `<button class="delivered-btn${allDel ? ' is-delivered' : ''}" type="button" data-group-delivered>✓</button>`
     : '';
 
   card.innerHTML = `
@@ -626,7 +643,7 @@ function createGroupCard(group, gIdx) {
         </div>
       </div>
       <div class="route-actions">
-        ${singleDeliveredBtn}
+        ${headerDeliveredBtn}
         <button class="maps-btn" type="button">Maps</button>
       </div>
     </div>
@@ -640,31 +657,32 @@ function createGroupCard(group, gIdx) {
     card.querySelector('.route-badge').style.background = nowAllDel ? 'var(--green)' : '';
   }
 
-  // Expand / collapse
-  const cardMain = card.querySelector('.card-main');
-  const details  = card.querySelector('.card-details');
-  cardMain.addEventListener('click', e => {
-    if (e.target.closest('.route-actions') || e.target.closest('.delivered-btn')) return;
+  // Expand / collapse — whole card is clickable except interactive elements
+  const details = card.querySelector('.card-details');
+  card.addEventListener('click', e => {
+    if (e.target.closest('button, select, a, input')) return;
     details.classList.toggle('hidden');
   });
 
-  // Single-item delivered toggle (in card-main)
-  const singleBtn = card.querySelector('[data-single]');
-  if (singleBtn) {
-    singleBtn.addEventListener('click', e => {
+  // Delivered toggle — header button (single item or sameInfo merged group)
+  const groupDeliveredBtn = card.querySelector('[data-group-delivered]');
+  if (groupDeliveredBtn) {
+    groupDeliveredBtn.addEventListener('click', e => {
       e.stopPropagation();
-      const { row, idx } = group[0];
-      const isDel = row._status === 'delivered';
-      row._status = isDel ? 'pending' : 'delivered';
-      singleBtn.classList.toggle('is-delivered', !isDel);
-      persistStatus(idx, row._status);
-      if (!isDel) addToHistory(row, idx); else removeFromHistory(idx);
+      const isDel = group.every(({ row }) => row._status === 'delivered');
+      const next  = isDel ? 'pending' : 'delivered';
+      group.forEach(({ row, idx }) => {
+        row._status = next;
+        persistStatus(idx, next);
+        if (next === 'delivered') addToHistory(row, idx); else removeFromHistory(idx);
+      });
+      groupDeliveredBtn.classList.toggle('is-delivered', !isDel);
       refreshBadge();
       renderCalendar();
     });
   }
 
-  // Multi-item delivered toggles (in card-details)
+  // Per-row delivered toggles (in card-details, only for different-info groups)
   card.querySelectorAll('.card-details .delivered-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
@@ -753,7 +771,7 @@ function addToHistory(row, index) {
   const key     = historyKey(index);
   const existing = history.findIndex(h => h.key === key);
   const record = {
-    key, date: todayStr(), completedAt: new Date().toISOString(),
+    key, date: selectedUploadDate, completedAt: new Date().toISOString(),
     address: row.deliveryAddress || 'Адрес не указан',
     orderNumber: row.orderNumber || '—', orderId: row.orderId || '—', buyer: row.buyer || ''
   };

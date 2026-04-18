@@ -278,6 +278,7 @@ html, body {
   border: 1.5px solid transparent;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+  cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
 }
 .route-card.dragging { opacity: 0.35; box-shadow: none; }
@@ -470,9 +471,20 @@ html, body {
 .btn-clear:hover { background: #ffe4cc; }
 
 /* ── Grouped address card ── */
+.group-orders-section {
+  border-top: 1px solid var(--border);
+}
+.group-orders-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 10px 16px;
+  background: none; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--text-secondary);
+  font-family: inherit;
+}
+.group-orders-toggle:hover { background: var(--bg); }
+.toggle-caret { font-size: 14px; color: var(--text-secondary); }
 .group-orders {
   display: flex; flex-direction: column; gap: 0;
-  border-top: 1px solid var(--border);
 }
 .group-order-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -484,6 +496,17 @@ html, body {
   font-size: 13px; font-weight: 600; color: var(--text);
   flex: 1; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.group-invoice-list {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 10px 16px; border-top: 1px solid var(--border);
+}
+.group-invoice-label {
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  white-space: nowrap; flex-shrink: 0;
+}
+.group-invoice-nums {
+  font-size: 13px; font-weight: 600; color: var(--text);
 }
 .group-badge-count {
   font-size: 11px; font-weight: 700; background: var(--orange-light);
