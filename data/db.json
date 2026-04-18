@@ -24,10 +24,10 @@
   ],
   "sessions": [
     {
-      "id": "session_05bb60df-0c5b-4bfa-90f3-5b76c5b5fc06",
+      "id": "session_078fe781-ead7-486a-a2e0-862542bd2952",
       "userId": "user_08c409f2-66d9-49ad-b05c-8855aa4794b9",
-      "token": "sess_eb81d1f9-0104-4069-a890-c077f89c1acb",
-      "expiresAt": "2026-05-18T12:33:47.537Z"
+      "token": "sess_2cc5226b-5efa-48be-8519-75ec1bf56b06",
+      "expiresAt": "2026-05-18T16:19:14.322Z"
     }
   ],
   "routes": [

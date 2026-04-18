@@ -37,6 +37,7 @@ const routeList      = document.getElementById('routeList');
 const resultCount    = document.getElementById('resultCount');
 const allDeliveredBtn= document.getElementById('allDeliveredBtn');
 const yandexRouteBtn = document.getElementById('yandexRouteBtn');
+const yandexFavBtn   = document.getElementById('yandexFavBtn');
 const tabRouteBtn    = document.getElementById('tabRouteBtn');
 const tabHistoryBtn  = document.getElementById('tabHistoryBtn');
 const historyBadge   = document.getElementById('historyBadge');
@@ -75,6 +76,7 @@ let currentRows       = [];       // flat filtered route rows
 let routeGroups       = [];       // grouped by address for display
 let activeRouteId     = null;
 let dragSrcGroupIdx   = null;
+let touchDragState    = null; // { srcIdx, ghost, lastTargetIdx, offsetY }
 let selectedUploadDate = todayStr(); // always tracks the date picker value
 let calendarState     = { year: new Date().getFullYear(), month: new Date().getMonth() };
 let selectedCalDay    = null;
@@ -94,6 +96,7 @@ addRouteBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
 allDeliveredBtn.addEventListener('click', markAllDelivered);
 yandexRouteBtn.addEventListener('click', buildYandexRoute);
+yandexFavBtn.addEventListener('click', addToYandexFavorites);
 tabRouteBtn.addEventListener('click',   () => switchTab('routeTab'));
 tabHistoryBtn.addEventListener('click', () => switchTab('historyTab'));
 routeDatePicker.addEventListener('change', () => onDatePickerChange());
@@ -104,6 +107,41 @@ calNextBtn.addEventListener('click',   () => { shiftCalendar(1);  renderCalendar
 ['dragenter','dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
 ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
 dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
+
+// ── Touch drag-and-drop (document level) ─────────────────
+document.addEventListener('touchmove', e => {
+  if (!touchDragState) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const { ghost, offsetY } = touchDragState;
+  ghost.style.top = `${touch.clientY - offsetY}px`;
+
+  ghost.style.display = 'none';
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  ghost.style.display = '';
+
+  document.querySelectorAll('.route-card').forEach(c => c.classList.remove('drag-over'));
+  const targetCard = el?.closest('.route-card');
+  if (targetCard) {
+    const idx = parseInt(targetCard.dataset.groupIndex, 10);
+    touchDragState.lastTargetIdx = idx;
+    if (idx !== touchDragState.srcIdx) targetCard.classList.add('drag-over');
+  }
+}, { passive: false });
+
+document.addEventListener('touchend', () => {
+  if (!touchDragState) return;
+  const { srcIdx, ghost, lastTargetIdx } = touchDragState;
+  ghost.remove();
+  document.querySelectorAll('.route-card').forEach(c => c.classList.remove('dragging', 'drag-over'));
+  touchDragState = null;
+  if (srcIdx !== lastTargetIdx) {
+    const [moved] = routeGroups.splice(srcIdx, 1);
+    routeGroups.splice(lastTargetIdx, 0, moved);
+    currentRows = routeGroups.flatMap(g => g.map(i => i.row));
+    renderRoute(currentRows);
+  }
+});
 tabAdminDriversBtn.addEventListener('click', () => switchAdminTab('adminDriversTab'));
 adminAddDriverBtn.addEventListener('click',  () => adminAddDriverForm.classList.remove('hidden'));
 cancelDriverBtn.addEventListener('click', () => {
@@ -538,6 +576,7 @@ function renderRoute(rows) {
   resultCount.textContent = `${pointCount} точек`;
   allDeliveredBtn.classList.toggle('hidden', !rows.length);
   yandexRouteBtn.classList.toggle('hidden', !rows.length);
+  yandexFavBtn.classList.toggle('hidden', !rows.length);
   if (!rows.length) {
     routeList.innerHTML = '<div class="empty-state">Совпадений не найдено</div>';
     return;
@@ -546,16 +585,43 @@ function renderRoute(rows) {
   routeGroups.forEach((group, gIdx) => routeList.appendChild(createGroupCard(group, gIdx)));
 }
 
+// ── Link opener (works on mobile — avoids popup blocker) ──
+function openLink(url) {
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ── Toast notification ────────────────────────────────────
+function showToast(msg, ms = 2800) {
+  let el = document.querySelector('.app-toast');
+  if (!el) { el = document.createElement('div'); el.className = 'app-toast'; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('visible'), ms);
+}
+
 // ── Yandex Multi-point Route ──────────────────────────────
 function buildYandexRoute() {
-  const addrs = routeGroups.length
-    ? routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean)
-    : currentRows.map(r => r.deliveryAddress).filter(Boolean);
+  const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
   if (!addrs.length) return;
-  window.open(
-    `https://yandex.ru/maps/?rtext=${addrs.map(a => encodeURIComponent(a)).join('~')}&rtt=auto`,
-    '_blank', 'noopener,noreferrer'
-  );
+  openLink(`https://yandex.ru/maps/?rtext=${addrs.map(a => encodeURIComponent(a)).join('~')}&rtt=auto`);
+}
+
+// ── Add all addresses to Yandex Favorites ────────────────
+async function addToYandexFavorites() {
+  const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
+  if (!addrs.length) return;
+  const text = addrs.map((a, i) => `${i + 1}. ${a}`).join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(`${addrs.length} адресов скопировано — вставьте в Яндекс Карты`);
+  } catch {
+    showToast('Откройте Яндекс Карты и добавьте адреса вручную');
+  }
 }
 
 // ── Group Card ────────────────────────────────────────────
@@ -703,14 +769,31 @@ function createGroupCard(group, gIdx) {
   // Maps button
   card.querySelector('.maps-btn').addEventListener('click', e => {
     e.stopPropagation();
-    window.open(yandex, '_blank', 'noopener,noreferrer');
+    openLink(yandex);
   });
 
-  // Drag
+  // Desktop drag-and-drop
   card.addEventListener('dragstart', onGroupDragStart);
   card.addEventListener('dragover',  onGroupDragOver);
   card.addEventListener('drop',      onGroupDrop);
   card.addEventListener('dragend',   onGroupDragEnd);
+
+  // Touch drag-and-drop (mobile)
+  const handle = card.querySelector('.drag-handle-icon');
+  handle.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const rect = card.getBoundingClientRect();
+    const touch = e.touches[0];
+    const ghost = card.cloneNode(true);
+    ghost.style.cssText = [
+      'position:fixed', 'z-index:9999', 'pointer-events:none', 'opacity:0.85',
+      `width:${rect.width}px`, `left:${rect.left}px`, `top:${rect.top}px`,
+      'box-shadow:0 8px 28px rgba(0,0,0,0.22)', 'border-radius:12px', 'transition:none'
+    ].join(';');
+    document.body.appendChild(ghost);
+    card.classList.add('dragging');
+    touchDragState = { srcIdx: gIdx, ghost, lastTargetIdx: gIdx, offsetY: touch.clientY - rect.top };
+  }, { passive: false });
 
   // Set initial badge
   refreshBadge();

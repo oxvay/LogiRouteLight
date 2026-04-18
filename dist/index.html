@@ -3,112 +3,182 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1020" />
+    <meta name="theme-color" content="#FF6B00" />
     <title>LogiRoute Light</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <script type="module" crossorigin src="/assets/index-CdI7-JfH.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-C1npey4N.css">
+    <script type="module" crossorigin src="/assets/index-Sl7lWgYI.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BsgM4Ug-.css">
   </head>
   <body>
-    <div class="background-blobs" aria-hidden="true">
-      <span class="blob blob-1"></span>
-      <span class="blob blob-2"></span>
-      <span class="blob blob-3"></span>
-    </div>
 
-    <main class="app-shell">
-      <section class="glass-card auth-card" id="authPanel">
-        <div>
-          <p class="eyebrow">Вход в систему</p>
-          <h1>Маршруты курьера</h1>
-          <p class="hero-text">Войдите под своим аккаунтом, чтобы загружать маршруты, просматривать историю и сохранять их по датам.</p>
+    <!-- ── Auth Screen ── -->
+    <section class="auth-screen" id="authPanel">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <div class="logo-icon">🚚</div>
+          <h1 class="auth-title">LogiRoute</h1>
+          <p class="auth-subtitle">Система управления маршрутами</p>
+        </div>
+        <form id="loginForm" class="auth-form" novalidate>
+          <div class="field">
+            <label for="loginInput">Логин</label>
+            <input id="loginInput" type="text" autocomplete="username" placeholder="driver" required />
+          </div>
+          <div class="field">
+            <label for="passwordInput">Пароль</label>
+            <div class="password-wrapper">
+              <input id="passwordInput" type="password" autocomplete="current-password" placeholder="••••••••" required />
+              <button type="button" class="toggle-pwd" id="togglePwd" aria-label="Показать пароль">👁</button>
+            </div>
+          </div>
+          <button class="btn-primary btn-wide" type="submit">Войти</button>
+          <div id="authMessage" class="auth-message">Демо: driver / driver123</div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ── App Screen ── -->
+    <section class="app-screen hidden" id="appPanel">
+
+      <!-- Header -->
+      <header class="app-header">
+        <div class="header-brand">
+          <div class="header-logo">🚚</div>
+          <div>
+            <div class="header-title">LogiRoute</div>
+            <div class="header-sub" id="headerUser">Водитель</div>
+          </div>
+        </div>
+        <button id="logoutBtn" class="btn-ghost" type="button">Выйти</button>
+      </header>
+
+      <div class="app-content">
+
+        <!-- Upload + Numbers -->
+        <div class="upload-section">
+          <div class="upload-btns">
+            <button id="addRouteBtn" class="btn-primary btn-upload" type="button">+ Маршрут</button>
+            <button id="numbersBtn" class="btn-secondary" type="button">🔢 Номера</button>
+          </div>
+          <div class="schedule-bar">
+            <span class="schedule-label">Дата:</span>
+            <div class="date-nav">
+              <button id="datePrevBtn" class="btn-ghost date-nav-btn" type="button">‹</button>
+              <input type="date" id="routeDatePicker" class="date-picker-input" />
+              <button id="dateNextBtn" class="btn-ghost date-nav-btn" type="button">›</button>
+            </div>
+          </div>
+
+          <!-- Numbers Panel -->
+          <div id="numbersPanel" class="numbers-panel hidden">
+            <p class="numbers-hint">Последние 3 цифры «Номер РасхНакл» — через запятую. Действуют на весь день.</p>
+            <div class="numbers-row">
+              <input id="numbersInput" class="numbers-input" type="text" placeholder="488, 491, 525" />
+              <button id="saveNumbersBtn" class="btn-primary btn-sm" type="button">Сохранить</button>
+            </div>
+            <div id="numbersStatus" class="numbers-status"></div>
+          </div>
+
+          <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
+          <label for="fileInput" class="dropzone" id="dropzone">
+            <span class="dz-icon">📂</span>
+            <span class="dz-text">Перетащите Excel-файл или нажмите «+ Маршрут»</span>
+          </label>
+          <div id="statusPanel" class="status-msg"></div>
         </div>
 
-        <form id="loginForm" class="auth-form">
-          <label class="field">
-            <span>Логин</span>
-            <input id="loginInput" type="text" autocomplete="username" placeholder="driver" required />
-          </label>
-          <label class="field">
-            <span>Пароль</span>
-            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="driver123" required />
-          </label>
-          <button class="primary-btn" type="submit">Войти</button>
-          <div id="authMessage" class="status-panel">Демо-доступ: driver / driver123</div>
-        </form>
-      </section>
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+          <button class="tab-btn active" id="tabRouteBtn" data-tab="routeTab" type="button">Маршрут</button>
+          <button class="tab-btn" id="tabHistoryBtn" data-tab="historyTab" type="button">
+            История <span class="tab-badge hidden" id="historyBadge">0</span>
+          </button>
+        </div>
 
-      <section class="app-layout hidden" id="appPanel">
-        <header class="topbar glass-card">
+        <!-- ── Route Tab ── -->
+        <div id="routeTab">
+          <div class="section-header">
+            <span class="route-count" id="resultCount">0 точек</span>
+            <div class="header-actions">
+              <button id="yandexRouteBtn" class="btn-secondary btn-sm hidden" type="button">🗺 Маршрут</button>
+              <button id="yandexFavBtn" class="btn-secondary btn-sm hidden" type="button">⭐ Избранное</button>
+              <button id="allDeliveredBtn" class="btn-all-delivered hidden" type="button">Все доставлены ✓</button>
+            </div>
+          </div>
+          <div id="routeList" class="route-list">
+            <div class="empty-state">Укажите номера и загрузите Excel-файл</div>
+          </div>
+        </div>
+
+        <!-- ── History Tab ── -->
+        <div id="historyTab" class="hidden">
+          <div class="cal-nav">
+            <button id="calPrevBtn" class="btn-ghost cal-nav-btn" type="button">‹</button>
+            <div class="cal-nav-center">
+              <span id="calMonthLabel"></span>
+              <div class="cal-month-count">Доставок: <span id="monthlyCount">0</span></div>
+            </div>
+            <button id="calNextBtn" class="btn-ghost cal-nav-btn" type="button">›</button>
+          </div>
+          <div id="calGrid" class="cal-grid"></div>
+          <div id="calDayDetail" class="cal-day-detail hidden"></div>
+        </div>
+
+      </div><!-- /app-content -->
+    </section>
+
+    <!-- ── Admin Panel ── -->
+    <section class="app-screen hidden" id="adminPanel">
+
+      <header class="app-header">
+        <div class="header-brand">
+          <div class="header-logo admin-logo">⚙️</div>
           <div>
-            <p class="eyebrow">Панель водителя</p>
-            <h2>Управление маршрутами</h2>
+            <div class="header-title">LogiRoute Admin</div>
+            <div class="header-sub" id="adminHeaderUser">Администратор</div>
           </div>
-          <div class="topbar-stats">
-            <div class="stat-pill">
-              <span class="stat-label">Счетчик завершенных маршрутов за месяц</span>
-              <strong id="monthCounter">0</strong>
-            </div>
-            <button id="logoutBtn" class="ghost-btn" type="button">Выйти</button>
-          </div>
-        </header>
+        </div>
+        <button id="adminLogoutBtn" class="btn-ghost" type="button">Выйти</button>
+      </header>
 
-        <section class="content-grid">
-          <article class="glass-card upload-card">
-            <div class="section-title-row">
-              <div>
-                <p class="section-kicker">Маршрут</p>
-                <h2>Добавить номера</h2>
+      <div class="app-content">
+
+        <div class="tab-bar">
+          <button class="tab-btn active" id="tabAdminDriversBtn" data-tab="adminDriversTab" type="button">Пользователи</button>
+        </div>
+
+        <div id="adminDriversTab">
+          <div class="section-header">
+            <span class="route-count" id="adminDriversCount">0 пользователей</span>
+            <button id="adminAddDriverBtn" class="btn-primary btn-sm" type="button">+ Добавить</button>
+          </div>
+
+          <div id="adminAddDriverForm" class="admin-form hidden">
+            <div class="admin-form-title">Новый пользователь</div>
+            <div class="admin-form-fields">
+              <div class="field">
+                <label for="newDriverLogin">Логин</label>
+                <input id="newDriverLogin" type="text" placeholder="driver2" autocomplete="off" />
               </div>
-              <span class="badge">.xls / .xlsx</span>
-            </div>
-
-            <button id="addRouteBtn" class="primary-btn wide-btn" type="button">Добавить маршрут</button>
-            <button id="addNumbersBtn" class="secondary-btn" type="button">Добавить номера</button>
-
-            <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
-            <textarea id="manualNumbers" class="manual-input hidden" rows="5" placeholder="Вставьте номера РасхНакл, по одному в строке"></textarea>
-
-            <label for="fileInput" class="dropzone" id="dropzone">
-              <div class="dropzone-icon">⇪</div>
-              <p class="dropzone-title">Перетащите Excel сюда или нажмите кнопку</p>
-              <p class="dropzone-subtitle">Сайт прочитает таблицу, сохранит маршрут и покажет дорожную карту.</p>
-            </label>
-
-            <div class="toolbar-grid">
-              <button id="showMapsBtn" class="secondary-btn" type="button">Показать все маршруты на Яндекс карте</button>
-              <button id="favoritesBtn" class="secondary-btn" type="button">Добавить все маршруты в избранное на Яндекс Картах</button>
-            </div>
-
-            <div id="fileInfo" class="file-info">Файл не выбран</div>
-            <div id="statusPanel" class="status-panel">Ожидание файла. После загрузки здесь появится разбор маршрута.</div>
-          </article>
-
-          <article class="glass-card history-card">
-            <div class="section-title-row">
-              <div>
-                <p class="section-kicker">История</p>
-                <h2>Архив по датам</h2>
+              <div class="field">
+                <label for="newDriverPassword">Пароль</label>
+                <input id="newDriverPassword" type="password" placeholder="••••••••" autocomplete="new-password" />
               </div>
-              <span class="badge" id="resultCount">0 точек</span>
             </div>
-            <div id="historyList" class="history-list empty-state">Пока нет сохранённых маршрутов.</div>
-          </article>
-        </section>
-
-        <section class="glass-card route-card">
-          <div class="section-title-row">
-            <div>
-              <p class="section-kicker">Результат</p>
-              <h2>Дорожная карта</h2>
+            <div id="adminDriverError" class="auth-message error hidden"></div>
+            <div class="admin-form-actions">
+              <button id="saveDriverBtn" class="btn-primary btn-sm" type="button">Сохранить</button>
+              <button id="cancelDriverBtn" class="btn-secondary" type="button">Отмена</button>
             </div>
           </div>
-          <div id="routeMap" class="route-map empty-state">Загрузите Excel, чтобы увидеть маршрут.</div>
-        </section>
-      </section>
-    </main>
+
+          <div id="adminDriversList" class="route-list"></div>
+        </div>
+
+      </div>
+    </section>
 
   </body>
 </html>
