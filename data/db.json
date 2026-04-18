@@ -24,16 +24,10 @@
   ],
   "sessions": [
     {
-      "id": "session_a6e3a16b-31a5-4fb4-bc38-55fdc3cfb66b",
-      "userId": "user_a442cfa1-e029-48f1-89a2-b270ae3223f9",
-      "token": "sess_c14f81a8-d45c-4b21-85a6-ed50f15f4e1a",
-      "expiresAt": "2026-04-18T05:06:41.913Z"
-    },
-    {
-      "id": "session_74fdcff5-a6b8-4497-925b-2196c01f3417",
+      "id": "session_881e236c-3c91-41c1-ade3-79c8bf90faa1",
       "userId": "user_08c409f2-66d9-49ad-b05c-8855aa4794b9",
-      "token": "sess_dc2d7bc0-19b2-4bba-a778-06331d1890fe",
-      "expiresAt": "2026-04-18T05:22:55.470Z"
+      "token": "sess_03918972-a182-4167-a98f-d107c45a3d24",
+      "expiresAt": "2026-05-18T06:31:01.129Z"
     }
   ],
   "routes": [

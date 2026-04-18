@@ -62,10 +62,11 @@
             <button id="numbersBtn" class="btn-secondary" type="button">🔢 Номера</button>
           </div>
           <div class="schedule-bar">
-            <span class="schedule-label">Дата маршрута:</span>
-            <div class="date-chips">
-              <button class="date-chip active" id="chipToday" type="button">Сегодня</button>
-              <button class="date-chip" id="chipTomorrow" type="button">Завтра</button>
+            <span class="schedule-label">Дата:</span>
+            <div class="date-nav">
+              <button id="datePrevBtn" class="btn-ghost date-nav-btn" type="button">‹</button>
+              <input type="date" id="routeDatePicker" class="date-picker-input" />
+              <button id="dateNextBtn" class="btn-ghost date-nav-btn" type="button">›</button>
             </div>
           </div>
 
@@ -126,11 +127,12 @@
       </div><!-- /app-content -->
     </section>
 
-    <!-- ── Admin Screen ── -->
+    <!-- ── Admin Panel ── -->
     <section class="app-screen hidden" id="adminPanel">
+
       <header class="app-header">
         <div class="header-brand">
-          <div class="header-logo" style="background:var(--text);">⚙️</div>
+          <div class="header-logo admin-logo">⚙️</div>
           <div>
             <div class="header-title">LogiRoute Admin</div>
             <div class="header-sub" id="adminHeaderUser">Администратор</div>
@@ -141,40 +143,36 @@
 
       <div class="app-content">
 
-        <!-- Tab Bar -->
         <div class="tab-bar">
-          <button class="tab-btn active" id="tabAdminDriversBtn" data-tab="adminDriversTab" type="button">Водители</button>
+          <button class="tab-btn active" id="tabAdminDriversBtn" data-tab="adminDriversTab" type="button">Пользователи</button>
         </div>
 
-        <!-- Drivers Tab -->
         <div id="adminDriversTab">
           <div class="section-header">
-            <span class="route-count" id="adminDriversCount">0 водителей</span>
-            <div class="header-actions">
-              <button id="adminAddDriverBtn" class="btn-primary btn-sm" type="button">+ Водитель</button>
+            <span class="route-count" id="adminDriversCount">0 пользователей</span>
+            <button id="adminAddDriverBtn" class="btn-primary btn-sm" type="button">+ Добавить</button>
+          </div>
+
+          <div id="adminAddDriverForm" class="admin-form hidden">
+            <div class="admin-form-title">Новый пользователь</div>
+            <div class="admin-form-fields">
+              <div class="field">
+                <label for="newDriverLogin">Логин</label>
+                <input id="newDriverLogin" type="text" placeholder="driver2" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="newDriverPassword">Пароль</label>
+                <input id="newDriverPassword" type="password" placeholder="••••••••" autocomplete="new-password" />
+              </div>
+            </div>
+            <div id="adminDriverError" class="auth-message error hidden"></div>
+            <div class="admin-form-actions">
+              <button id="saveDriverBtn" class="btn-primary btn-sm" type="button">Сохранить</button>
+              <button id="cancelDriverBtn" class="btn-secondary" type="button">Отмена</button>
             </div>
           </div>
 
-          <div id="adminAddDriverForm" class="hidden" style="background:#fff; padding:16px; border-radius:16px; margin-bottom:16px; box-shadow:var(--shadow-sm);">
-            <div style="font-weight:700; margin-bottom:12px;">Новый водитель</div>
-            <div class="field" style="margin-bottom:10px;">
-              <label>Логин</label>
-              <input id="newDriverLogin" type="text" placeholder="Уникальный логин" />
-            </div>
-            <div class="field" style="margin-bottom:12px;">
-              <label>Пароль</label>
-              <input id="newDriverPassword" type="password" placeholder="Пароль" />
-            </div>
-            <div style="display:flex; gap:8px;">
-               <button id="saveDriverBtn" class="btn-primary btn-sm" type="button">Сохранить</button>
-               <button id="cancelDriverBtn" class="btn-secondary btn-sm" type="button" style="padding:10px 16px;">Отмена</button>
-            </div>
-            <div id="adminDriverError" class="auth-message error hidden" style="margin-top:10px;"></div>
-          </div>
-
-          <div id="adminDriversList" class="route-list">
-             <!-- Driver cards -->
-          </div>
+          <div id="adminDriversList" class="route-list"></div>
         </div>
 
       </div>

@@ -201,16 +201,21 @@ html, body {
   margin-top: 12px; flex-wrap: wrap;
 }
 .schedule-label { font-size: 13px; color: var(--muted); font-weight: 600; }
-.date-chips { display: flex; gap: 6px; }
-.date-chip {
-  padding: 6px 16px; border-radius: 999px;
-  border: 1.5px solid var(--border);
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  background: var(--white); color: var(--muted);
-  font-family: inherit; transition: all 0.15s;
+
+.date-nav { display: flex; align-items: center; gap: 4px; }
+.date-nav-btn {
+  padding: 6px 10px; font-size: 18px; line-height: 1;
+  border-radius: 8px;
 }
-.date-chip.active { background: var(--orange); color: white; border-color: var(--orange); }
-.date-chip:not(.active):hover { border-color: var(--orange); color: var(--orange); }
+.date-picker-input {
+  padding: 7px 10px; border-radius: 8px;
+  border: 1.5px solid var(--border);
+  font-size: 13px; color: var(--text); font-weight: 600;
+  font-family: inherit; background: var(--white); outline: none;
+  cursor: pointer; transition: border-color 0.15s;
+}
+.date-picker-input:focus { border-color: var(--orange); }
+.date-picker-input.is-today { border-color: var(--orange); color: var(--orange); }
 
 .dropzone {
   display: flex; align-items: center; gap: 12px;
@@ -310,18 +315,19 @@ html, body {
 
 .route-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 
-.status-select {
-  font-size: 12px; padding: 6px 8px;
-  border-radius: 8px; border: 1.5px solid var(--border);
-  background: var(--white); color: var(--text);
-  font-weight: 500; cursor: pointer; outline: none;
-  max-width: 108px; font-family: inherit;
-  transition: border-color 0.15s;
+.delivered-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--white); color: transparent;
+  font-size: 15px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; transition: all 0.15s; font-family: inherit;
+  line-height: 1;
 }
-.status-select:focus { border-color: var(--orange); }
-.status-select.status-inprogress { color: var(--orange); border-color: var(--orange); background: var(--orange-light); }
-.status-select.status-delivered  { color: var(--green); border-color: var(--green); background: var(--green-bg); }
-.status-select.status-failed     { color: var(--red); border-color: var(--red); background: var(--red-bg); }
+.delivered-btn:hover { border-color: var(--green); color: rgba(39,174,96,0.5); }
+.delivered-btn.is-delivered {
+  background: var(--green); border-color: var(--green); color: white;
+}
 
 .maps-btn {
   background: var(--orange); color: white; border: none;
@@ -416,11 +422,117 @@ html, body {
 
 /* ── Responsive ── */
 @media (max-width: 420px) {
-  .stats-row { gap: 8px; }
-  .stat-card { padding: 14px 8px; }
-  .stat-value { font-size: 20px; }
   .card-main { padding: 12px; gap: 8px; }
   .route-actions { flex-direction: column; align-items: flex-end; gap: 6px; }
-  .status-select { max-width: 90px; }
   .detail-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Admin Panel ── */
+.admin-logo { font-size: 22px; }
+
+.admin-form {
+  background: var(--white); border-radius: var(--radius);
+  padding: 20px; margin-bottom: 16px;
+  box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 14px;
+}
+.admin-form-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.admin-form-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.admin-form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.user-route-count {
+  font-size: 11px; color: var(--muted); font-weight: 500;
+  background: var(--bg); border-radius: 999px; padding: 2px 8px;
+}
+.admin-role-badge {
+  font-size: 11px; font-weight: 700; padding: 2px 8px;
+  border-radius: 999px; display: inline-block;
+}
+.admin-role-badge.role-admin  { background: var(--red-bg); color: var(--red); }
+.admin-role-badge.role-driver { background: var(--orange-light); color: var(--orange); }
+
+.btn-danger {
+  background: var(--red-bg); color: var(--red);
+  border: 1.5px solid var(--red); border-radius: 8px;
+  padding: 8px 12px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-danger:hover { background: #f5c6c2; }
+.btn-danger:disabled { opacity: 0.4; cursor: default; }
+
+.btn-clear {
+  background: var(--orange-light); color: var(--orange);
+  border: 1.5px solid var(--orange); border-radius: 8px;
+  padding: 8px 12px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-clear:hover { background: #ffe4cc; }
+
+/* ── Grouped address card ── */
+.group-orders {
+  display: flex; flex-direction: column; gap: 0;
+  border-top: 1px solid var(--border);
+}
+.group-order-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.group-order-row:last-child { border-bottom: none; }
+.group-order-num {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.group-badge-count {
+  font-size: 11px; font-weight: 700; background: var(--orange-light);
+  color: var(--orange); border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+}
+
+/* Group sections (different info per duplicate) */
+.group-order-section {
+  border-top: 1px solid var(--border);
+}
+.group-order-section:first-child { border-top: none; }
+.group-section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 16px;
+  background: var(--orange-subtle);
+  font-size: 13px; font-weight: 600;
+}
+
+/* ── Calendar route indicator ── */
+.cal-cell.has-route { background: var(--orange-subtle); }
+.cal-cell.has-route.has-deliveries { background: var(--orange-light); }
+.cal-cell.is-selected.has-route { background: var(--orange) !important; }
+
+/* ── Mobile improvements ── */
+@media (max-width: 480px) {
+  .app-header { padding: 12px 14px; gap: 8px; }
+  .header-logo { width: 34px; height: 34px; font-size: 17px; }
+  .header-title { font-size: 14px; }
+  .header-sub { font-size: 11px; }
+
+  .upload-btns { gap: 8px; }
+  .btn-upload { padding: 12px 10px; font-size: 14px; }
+
+  .section-header { flex-wrap: wrap; gap: 8px; }
+  .header-actions { flex-wrap: wrap; gap: 6px; }
+
+  .card-main { padding: 10px 12px; gap: 8px; }
+  .route-actions { flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .delivered-btn { width: 30px; height: 30px; font-size: 13px; }
+  .maps-btn { padding: 7px 10px; font-size: 11px; }
+
+  .detail-grid { grid-template-columns: 1fr; }
+  .group-order-row { flex-wrap: wrap; }
+
+  .admin-form-fields { grid-template-columns: 1fr; }
+  .admin-form-actions { gap: 8px; }
+
+  .cal-grid { padding: 10px 6px; gap: 2px; }
+  .cal-cell { font-size: 12px; min-height: 32px; padding: 4px 1px; }
+  .cal-header-cell { font-size: 10px; }
+  .cal-nav-btn { padding: 6px 10px; font-size: 16px; }
 }

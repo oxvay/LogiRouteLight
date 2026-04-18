@@ -2,21 +2,20 @@ import * as XLSX from 'xlsx';
 
 const API_BASE = '/api';
 const SESSION_TOKEN_KEY = 'logiroute_session_token';
-const LS_ACTIVE    = 'lrl_active';      // { routeId, date }
-const LS_NUMBERS   = 'lrl_numbers';     // { date, suffixes: string[] }
-const LS_STATUSES  = 'lrl_statuses';    // { [routeId_index]: status }
-const LS_HISTORY   = 'lrl_history';     // DeliveryRecord[]
+const LS_ACTIVE   = 'lrl_active';    // { routeId, date }
+const LS_NUMBERS  = 'lrl_numbers';   // { date, suffixes: string[] }
+const LS_STATUSES = 'lrl_statuses';  // { [routeId_index]: status }
+const LS_HISTORY  = 'lrl_history';   // DeliveryRecord[]
 
 const dataColumns = {
   orderNumber: 0, deliveryAddress: 2, grossWeight: 4,
   buyer: 5, comment: 7, responsible: 8, deliveryService: 9, orderId: 11
 };
 
-function lsKey(key) {
-  return currentUser ? `${key}_${currentUser.id}` : key;
-}
+// Per-user localStorage key isolation
+function lsKey(key) { return currentUser ? `${key}_${currentUser.id}` : key; }
 
-// ── DOM ───────────────────────────────────────────────────
+// ── DOM refs ──────────────────────────────────────────────
 const authPanel      = document.getElementById('authPanel');
 const appPanel       = document.getElementById('appPanel');
 const loginForm      = document.getElementById('loginForm');
@@ -45,41 +44,45 @@ const routeTab       = document.getElementById('routeTab');
 const historyTab     = document.getElementById('historyTab');
 const monthlyCount   = document.getElementById('monthlyCount');
 const dropzone       = document.getElementById('dropzone');
-const chipToday      = document.getElementById('chipToday');
-const chipTomorrow   = document.getElementById('chipTomorrow');
+const routeDatePicker= document.getElementById('routeDatePicker');
+const datePrevBtn    = document.getElementById('datePrevBtn');
+const dateNextBtn    = document.getElementById('dateNextBtn');
 const calGrid        = document.getElementById('calGrid');
 const calDayDetail   = document.getElementById('calDayDetail');
 const calMonthLabel  = document.getElementById('calMonthLabel');
 const calPrevBtn     = document.getElementById('calPrevBtn');
 const calNextBtn     = document.getElementById('calNextBtn');
 
-let currentUser      = null;
-let currentRows      = [];      // filtered route rows currently displayed
-let activeRouteId    = null;    // backend route ID for today
-let dragSrcIndex     = null;
-let selectedUploadDate = todayStr();
-let calendarState    = { year: new Date().getFullYear(), month: new Date().getMonth() };
-let selectedCalDay   = null;
-
-// ── Admin DOM ─────────────────────────────────────────────
-const adminPanel       = document.getElementById('adminPanel');
-const adminLogoutBtn   = document.getElementById('adminLogoutBtn');
-const adminHeaderUser  = document.getElementById('adminHeaderUser');
-const tabAdminDriversBtn = document.getElementById('tabAdminDriversBtn');
-const adminDriversTab  = document.getElementById('adminDriversTab');
-const adminDriversCount= document.getElementById('adminDriversCount');
-const adminAddDriverBtn= document.getElementById('adminAddDriverBtn');
+// Admin DOM
+const adminPanel        = document.getElementById('adminPanel');
+const adminLogoutBtn    = document.getElementById('adminLogoutBtn');
+const adminHeaderUser   = document.getElementById('adminHeaderUser');
+const tabAdminDriversBtn= document.getElementById('tabAdminDriversBtn');
+const adminDriversTab   = document.getElementById('adminDriversTab');
+const adminDriversCount = document.getElementById('adminDriversCount');
+const adminAddDriverBtn = document.getElementById('adminAddDriverBtn');
 const adminAddDriverForm= document.getElementById('adminAddDriverForm');
-const newDriverLogin   = document.getElementById('newDriverLogin');
-const newDriverPassword= document.getElementById('newDriverPassword');
-const saveDriverBtn    = document.getElementById('saveDriverBtn');
-const cancelDriverBtn  = document.getElementById('cancelDriverBtn');
-const adminDriverError = document.getElementById('adminDriverError');
-const adminDriversList = document.getElementById('adminDriversList');
+const newDriverLogin    = document.getElementById('newDriverLogin');
+const newDriverPassword = document.getElementById('newDriverPassword');
+const saveDriverBtn     = document.getElementById('saveDriverBtn');
+const cancelDriverBtn   = document.getElementById('cancelDriverBtn');
+const adminDriverError  = document.getElementById('adminDriverError');
+const adminDriversList  = document.getElementById('adminDriversList');
 
-// ── Startup ───────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────
+let currentUser       = null;
+let currentRows       = [];       // flat filtered route rows
+let routeGroups       = [];       // grouped by address for display
+let activeRouteId     = null;
+let dragSrcGroupIdx   = null;
+let selectedUploadDate = todayStr(); // always tracks the date picker value
+let calendarState     = { year: new Date().getFullYear(), month: new Date().getMonth() };
+let selectedCalDay    = null;
+
+// ── Event listeners ───────────────────────────────────────
 loginForm.addEventListener('submit', handleLogin);
 logoutBtn.addEventListener('click', handleLogout);
+adminLogoutBtn.addEventListener('click', handleLogout);
 togglePwd.addEventListener('click', () => {
   const show = passwordInput.type === 'password';
   passwordInput.type = show ? 'text' : 'password';
@@ -93,18 +96,16 @@ allDeliveredBtn.addEventListener('click', markAllDelivered);
 yandexRouteBtn.addEventListener('click', buildYandexRoute);
 tabRouteBtn.addEventListener('click',   () => switchTab('routeTab'));
 tabHistoryBtn.addEventListener('click', () => switchTab('historyTab'));
-chipToday.addEventListener('click',    () => selectUploadDate('today'));
-chipTomorrow.addEventListener('click', () => selectUploadDate('tomorrow'));
+routeDatePicker.addEventListener('change', () => onDatePickerChange());
+datePrevBtn.addEventListener('click', () => shiftPickerDate(-1));
+dateNextBtn.addEventListener('click', () => shiftPickerDate(+1));
 calPrevBtn.addEventListener('click',   () => { shiftCalendar(-1); renderCalendar(); });
 calNextBtn.addEventListener('click',   () => { shiftCalendar(1);  renderCalendar(); });
-['dragenter', 'dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
-['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+['dragenter','dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
 dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
-
-// Admin listeners
-adminLogoutBtn.addEventListener('click', handleLogout);
 tabAdminDriversBtn.addEventListener('click', () => switchAdminTab('adminDriversTab'));
-adminAddDriverBtn.addEventListener('click', () => adminAddDriverForm.classList.remove('hidden'));
+adminAddDriverBtn.addEventListener('click',  () => adminAddDriverForm.classList.remove('hidden'));
 cancelDriverBtn.addEventListener('click', () => {
   adminAddDriverForm.classList.add('hidden');
   newDriverLogin.value = ''; newDriverPassword.value = '';
@@ -114,19 +115,16 @@ saveDriverBtn.addEventListener('click', handleAdminAddDriver);
 
 bootstrap();
 
-// ── Auth ─────────────────────────────────────────────────
+// ── Auth ──────────────────────────────────────────────────
 async function bootstrap() {
   const token = localStorage.getItem(SESSION_TOKEN_KEY);
   try {
     const res = await fetch(`${API_BASE}/me`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (res.ok) {
       currentUser = (await res.json()).user;
-      if (currentUser.role === 'admin') {
-        showAdminApp();
-      } else {
-        showApp();
-        await loadTodayRoute();
-      }
+      if (currentUser.role === 'admin') { showAdminApp(); return; }
+      showApp();
+      await loadRouteForDate(todayStr());
       return;
     }
   } catch { /* fall through */ }
@@ -147,19 +145,14 @@ async function handleLogin(e) {
     const data = await res.json();
     currentUser = data.user;
     localStorage.setItem(SESSION_TOKEN_KEY, data.token);
-    if (currentUser.role === 'admin') {
-      showAdminApp();
-    } else {
-      showApp();
-      await loadTodayRoute();
-    }
+    if (currentUser.role === 'admin') { showAdminApp(); return; }
+    showApp();
+    await loadRouteForDate(todayStr());
   } catch { setAuthMsg('Ошибка соединения с сервером', true); }
 }
 
 async function handleLogout() {
-  try {
-    await fetch(`${API_BASE}/logout`, { method: 'POST', headers: authHeaders() });
-  } catch { /* ignore */ }
+  try { await fetch(`${API_BASE}/logout`, { method: 'POST', headers: authHeaders() }); } catch { /* ignore */ }
   localStorage.removeItem(SESSION_TOKEN_KEY);
   location.reload();
 }
@@ -174,8 +167,7 @@ function showAuth() {
   appPanel.classList.add('hidden');
   adminPanel.classList.add('hidden');
   setAuthMsg('Демо: driver / driver123 | admin / admin123', false);
-  loginInput.value = '';
-  passwordInput.value = '';
+  loginInput.value = ''; passwordInput.value = '';
 }
 
 function showApp() {
@@ -183,6 +175,9 @@ function showApp() {
   adminPanel.classList.add('hidden');
   appPanel.classList.remove('hidden');
   headerUser.textContent = currentUser?.login || 'Водитель';
+  selectedUploadDate = todayStr();
+  routeDatePicker.value = selectedUploadDate;
+  routeDatePicker.classList.toggle('is-today', true);
   loadSavedNumbers();
   renderCalendar();
 }
@@ -195,14 +190,12 @@ function showAdminApp() {
   loadAdminUsers();
 }
 
-// ── Admin Logic ───────────────────────────────────────────
-
+// ── Admin ─────────────────────────────────────────────────
 function switchAdminTab(tabId) {
   [adminDriversTab].forEach(t => t.classList.add('hidden'));
   [tabAdminDriversBtn].forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).classList.remove('hidden');
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  if (tabId === 'adminDriversTab') loadAdminUsers();
 }
 
 async function loadAdminUsers() {
@@ -210,71 +203,84 @@ async function loadAdminUsers() {
     const res = await fetch(`${API_BASE}/admin/users`, { headers: authHeaders() });
     if (!res.ok) return;
     const { users } = await res.json();
-    adminDriversCount.textContent = `${users.length} пользовател${pluralRu(users.length)}`;
+    const plural = n => n === 1 ? 'пользователь' : n < 5 ? 'пользователя' : 'пользователей';
+    adminDriversCount.textContent = `${users.length} ${plural(users.length)}`;
     adminDriversList.innerHTML = '';
     users.forEach(u => {
+      const isSelf = u.id === currentUser?.id;
+      const created = new Date(u.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
       const card = document.createElement('div');
       card.className = 'route-card';
       card.innerHTML = `
-        <div class="card-main">
-          <div class="route-badge" style="background:var(--text); ${u.role === 'admin' ? 'background:var(--red)' : ''}">👤</div>
+        <div class="card-main" style="cursor:default">
+          <div class="route-badge" style="background:${u.role === 'admin' ? 'var(--red)' : 'var(--text)'}; font-size:16px">👤</div>
           <div class="route-info">
-            <div class="route-address">${escapeHtml(u.login)}</div>
-            <div class="route-ordnum">Роль: ${u.role}</div>
+            <div class="route-address">
+              ${escapeHtml(u.login)}
+              ${isSelf ? '<span style="font-size:11px;color:var(--orange);font-weight:600;margin-left:6px">Вы</span>' : ''}
+            </div>
+            <div class="route-ordnum">
+              <span class="admin-role-badge role-${u.role}">${u.role === 'admin' ? 'Admin' : 'Driver'}</span>
+              &nbsp;·&nbsp;Маршрутов: ${u.routeCount}
+              &nbsp;·&nbsp;${created}
+            </div>
           </div>
           <div class="route-actions">
-            ${u.role !== 'admin' ? `<button class="maps-btn delete-driver-btn" style="background:var(--red);" data-id="${u.id}">Удалить</button>` : ''}
+            ${!isSelf ? `
+              <button class="btn-clear" data-action="clear" data-id="${u.id}" data-login="${escapeHtml(u.login)}">Очистить</button>
+              <button class="btn-danger" data-action="delete" data-id="${u.id}" data-login="${escapeHtml(u.login)}">Удалить</button>
+            ` : ''}
           </div>
         </div>
       `;
       adminDriversList.appendChild(card);
     });
-    
-    document.querySelectorAll('.delete-driver-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const id = e.target.dataset.id;
-        if (!confirm('Вы уверены, что хотите удалить этого пользователя и всю его историю? ОПЕРАЦИЯ НЕОБРАТИМА!')) return;
-        try {
-          e.target.textContent = '...';
-          const res = await fetch(`${API_BASE}/admin/users/${id}`, { method: 'DELETE', headers: authHeaders() });
-          if (res.ok) {
-            loadAdminUsers();
-          } else {
-            alert('Ошибка удаления');
-          }
-        } catch (err) { alert('Ошибка сети'); }
+
+    adminDriversList.querySelectorAll('[data-action="clear"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Очистить все данные «${btn.dataset.login}»?\nАккаунт останется, маршруты удалятся.`)) return;
+        btn.textContent = '…';
+        const r = await fetch(`${API_BASE}/admin/users/${btn.dataset.id}/clear`, { method: 'POST', headers: authHeaders() });
+        if (r.ok) loadAdminUsers(); else alert('Ошибка');
       });
     });
-  } catch (err) { console.error('Error fetching admin users', err); }
+    adminDriversList.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Удалить «${btn.dataset.login}» и все его данные?\nОперация необратима!`)) return;
+        btn.textContent = '…';
+        const r = await fetch(`${API_BASE}/admin/users/${btn.dataset.id}`, { method: 'DELETE', headers: authHeaders() });
+        if (r.ok) loadAdminUsers(); else alert('Ошибка');
+      });
+    });
+  } catch (err) { console.error('Admin load error', err); }
 }
 
 async function handleAdminAddDriver() {
   adminDriverError.classList.add('hidden');
-  const login = newDriverLogin.value;
+  const login    = newDriverLogin.value.trim();
   const password = newDriverPassword.value;
   if (!login || !password) {
     adminDriverError.textContent = 'Заполните логин и пароль';
     adminDriverError.classList.remove('hidden');
     return;
   }
-  saveDriverBtn.textContent = '...';
+  saveDriverBtn.textContent = '…';
   try {
     const res = await fetch(`${API_BASE}/admin/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ login, password })
+      body: JSON.stringify({ login, password, role: 'driver' })
     });
     if (!res.ok) {
       const { error } = await res.json();
       adminDriverError.textContent = error || 'Ошибка создания';
       adminDriverError.classList.remove('hidden');
     } else {
-      newDriverLogin.value = '';
-      newDriverPassword.value = '';
+      newDriverLogin.value = ''; newDriverPassword.value = '';
       adminAddDriverForm.classList.add('hidden');
       loadAdminUsers();
     }
-  } catch (err) {
+  } catch {
     adminDriverError.textContent = 'Сетевая ошибка';
     adminDriverError.classList.remove('hidden');
   } finally {
@@ -282,17 +288,24 @@ async function handleAdminAddDriver() {
   }
 }
 
-// ── Schedule Toggle ───────────────────────────────────────
-function tomorrowStr() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+// ── Date Picker ───────────────────────────────────────────
+function onDatePickerChange() {
+  const val = routeDatePicker.value;
+  if (!val) return;
+  selectedUploadDate = val;
+  routeDatePicker.classList.toggle('is-today', val === todayStr());
+  loadRouteForDate(val);
 }
 
-function selectUploadDate(which) {
-  selectedUploadDate = which === 'tomorrow' ? tomorrowStr() : todayStr();
-  chipToday.classList.toggle('active', which === 'today');
-  chipTomorrow.classList.toggle('active', which === 'tomorrow');
+function shiftPickerDate(delta) {
+  const current = routeDatePicker.value || todayStr();
+  const d = new Date(current + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  const next = d.toISOString().slice(0, 10);
+  routeDatePicker.value = next;
+  selectedUploadDate = next;
+  routeDatePicker.classList.toggle('is-today', next === todayStr());
+  loadRouteForDate(next);
 }
 
 // ── Numbers Filter ────────────────────────────────────────
@@ -308,19 +321,12 @@ function getFilterSuffixes() {
 
 function loadSavedNumbers() {
   const suffixes = getFilterSuffixes();
-  if (suffixes.length) {
-    numbersInput.value = suffixes.join(', ');
-    showNumbersStatus(suffixes);
-  }
+  if (suffixes.length) { numbersInput.value = suffixes.join(', '); showNumbersStatus(suffixes); }
 }
 
 function saveNumbers() {
-  const raw = numbersInput.value;
-  const suffixes = parseFilterInput(raw);
-  if (!suffixes.length) {
-    numbersStatus.textContent = 'Введите хотя бы одно число';
-    return;
-  }
+  const suffixes = parseFilterInput(numbersInput.value);
+  if (!suffixes.length) { numbersStatus.textContent = 'Введите хотя бы одно число'; return; }
   localStorage.setItem(lsKey(LS_NUMBERS), JSON.stringify({ date: todayStr(), suffixes }));
   showNumbersStatus(suffixes);
 }
@@ -333,58 +339,51 @@ function parseFilterInput(raw) {
   return raw.split(',').map(s => s.trim().replace(/\D/g, '')).filter(s => s.length > 0);
 }
 
-// ── Persistence: load today's route ───────────────────────
-async function loadTodayRoute() {
+// ── Persistence: load route for a given date ─────────────
+async function loadRouteForDate(dateStr) {
   if (!currentUser) return;
-  const token = localStorage.getItem(SESSION_TOKEN_KEY);
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const headers = authHeaders();
+  const isToday = dateStr === todayStr();
 
-  const saved = JSON.parse(localStorage.getItem(lsKey(LS_ACTIVE)) || 'null');
-  if (saved?.date === todayStr() && saved.routeId) {
-    activeRouteId = saved.routeId;
-    const res = await fetch(`${API_BASE}/routes/${activeRouteId}/items`, { headers });
-    if (res.ok) {
-      const { items } = await res.json();
-      if (items.length) {
-        currentRows = items;
-        restoreStatuses();
-        renderRoute(currentRows);
-        statusPanel.textContent = `Маршрут загружен: ${currentRows.length} точек.`;
-        return;
+  // Try LS cache for today
+  if (isToday) {
+    const saved = JSON.parse(localStorage.getItem(lsKey(LS_ACTIVE)) || 'null');
+    if (saved?.date === dateStr && saved.routeId) {
+      const res = await fetch(`${API_BASE}/routes/${saved.routeId}/items`, { headers });
+      if (res.ok) {
+        const { items } = await res.json();
+        if (items.length) {
+          activeRouteId = saved.routeId;
+          currentRows = items; restoreStatuses(); renderRoute(currentRows);
+          statusPanel.textContent = `Маршрут: ${currentRows.length} точек.`;
+          return;
+        }
       }
     }
   }
 
-  const res = await fetch(`${API_BASE}/routes?date=${todayStr()}`, { headers });
-  if (!res.ok) return;
+  const res = await fetch(`${API_BASE}/routes?date=${dateStr}`, { headers });
+  if (!res.ok) { currentRows = []; activeRouteId = null; renderRoute([]); return; }
   const { routes } = await res.json();
-  if (!routes?.length) {
-    activeRouteId = null;
-    currentRows = [];
-    renderRoute([]);
-    return;
-  }
+  if (!routes?.length) { activeRouteId = null; currentRows = []; renderRoute([]); statusPanel.textContent = ''; return; }
 
   const latest = routes[routes.length - 1];
   activeRouteId = latest.id;
-  localStorage.setItem(lsKey(LS_ACTIVE), JSON.stringify({ date: todayStr(), routeId: activeRouteId }));
+  if (isToday) localStorage.setItem(lsKey(LS_ACTIVE), JSON.stringify({ date: dateStr, routeId: activeRouteId }));
 
   const itemsRes = await fetch(`${API_BASE}/routes/${activeRouteId}/items`, { headers });
-  if (!itemsRes.ok) return;
+  if (!itemsRes.ok) { renderRoute([]); return; }
   const { items } = await itemsRes.json();
-  if (items.length) {
-    currentRows = items;
-    restoreStatuses();
-    renderRoute(currentRows);
-    statusPanel.textContent = `Маршрут загружен: ${currentRows.length} точек.`;
-  }
+  currentRows = items; restoreStatuses(); renderRoute(currentRows);
+  statusPanel.textContent = currentRows.length ? `Маршрут: ${currentRows.length} точек.` : '';
 }
 
 function restoreStatuses() {
   if (!activeRouteId) return;
   const all = JSON.parse(localStorage.getItem(lsKey(LS_STATUSES)) || '{}');
   currentRows.forEach((row, i) => {
-    row._status = all[`${activeRouteId}_${i}`] || 'pending';
+    const s = all[`${activeRouteId}_${i}`];
+    row._status = s === 'delivered' ? 'delivered' : 'pending';
   });
 }
 
@@ -396,36 +395,26 @@ async function processFile(file) {
     numbersPanel.classList.remove('hidden');
     return;
   }
-  statusPanel.textContent = `Читаем файл…`;
+  statusPanel.textContent = 'Читаем файл…';
   try {
-    const buffer = await file.arrayBuffer();
+    const buffer   = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
-    const rows = extractRowsFromWorkbook(workbook);
-    const filtered = rows.filter(r => {
-      const num = normalizeText(r.orderNumber);
-      return suffixes.some(s => num.endsWith(s));
-    });
+    const rows     = extractRowsFromWorkbook(workbook);
+    const filtered = rows.filter(r => suffixes.some(s => normalizeText(r.orderNumber).endsWith(s)));
     if (!filtered.length) {
       statusPanel.textContent = `Совпадений не найдено. Проверьте номера (${suffixes.join(', ')}).`;
       return;
     }
     filtered.forEach(r => { r._status = 'pending'; });
     currentRows = filtered;
-
-    const label = selectedUploadDate === todayStr() ? 'сегодня' : 'завтра';
+    const isToday = selectedUploadDate === todayStr();
+    const label = isToday ? 'сегодня' : selectedUploadDate;
     statusPanel.textContent = `Найдено ${currentRows.length} точек (${label}).`;
-
-    // Only display the route immediately if it's for today
-    if (selectedUploadDate === todayStr()) {
-      renderRoute(currentRows);
-    } else {
-      statusPanel.textContent += ' Маршрут сохранён для завтра.';
-    }
-
+    renderRoute(currentRows);
     const routeId = await saveRoute(file.name, currentRows);
-    if (routeId && selectedUploadDate === todayStr()) {
+    if (routeId) {
       activeRouteId = routeId;
-      localStorage.setItem(lsKey(LS_ACTIVE), JSON.stringify({ date: todayStr(), routeId }));
+      if (isToday) localStorage.setItem(lsKey(LS_ACTIVE), JSON.stringify({ date: selectedUploadDate, routeId }));
     }
   } catch (err) {
     console.error(err);
@@ -440,10 +429,10 @@ function extractRowsFromWorkbook(workbook) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet || !sheet['!ref']) continue;
     const range = XLSX.utils.decode_range(sheet['!ref']);
-    const rows = [];
+    const rows  = [];
     for (let r = range.s.r; r <= range.e.r; r++) rows.push(readRow(sheet, r, range.e.c));
     for (let r = 3; r < rows.length; r++) {
-      const row = rows[r] || [];
+      const row    = rows[r] || [];
       if (!row.some(c => String(c ?? '').trim() !== '')) continue;
       const mapped = mapRow(row);
       if (String(mapped.orderNumber).toUpperCase().includes('РАСХНАКЛ')) continue;
@@ -479,8 +468,7 @@ function readRow(sheet, rowIndex, maxCol) {
 }
 
 function normalizeText(value) {
-  return String(value ?? '').replace(/\u00A0/g, ' ').replace(/\t/g, ' ')
-    .trim().replace(/\s+/g, ' ').toUpperCase();
+  return String(value ?? '').replace(/\u00A0/g, ' ').replace(/\t/g, ' ').trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
 // ── API ───────────────────────────────────────────────────
@@ -495,9 +483,7 @@ async function saveRoute(sourceFileName, items) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
-      sourceFileName,
-      routeDate: selectedUploadDate,
-      status: 'active',
+      sourceFileName, routeDate: selectedUploadDate, status: 'active',
       items: items.map(r => ({
         orderNumber: r.orderNumber, deliveryAddress: r.deliveryAddress,
         grossWeight: r.grossWeight, buyer: r.buyer, comment: r.comment,
@@ -509,42 +495,119 @@ async function saveRoute(sourceFileName, items) {
   return (await res.json()).route?.id || null;
 }
 
+// ── Address Grouping ──────────────────────────────────────
+function groupRowsByAddress(rows) {
+  const groups  = [];
+  const keyMap  = new Map(); // normalised address → group index
+  rows.forEach((row, idx) => {
+    const key = (row.deliveryAddress || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    if (keyMap.has(key)) {
+      groups[keyMap.get(key)].push({ row, idx });
+    } else {
+      keyMap.set(key, groups.length);
+      groups.push([{ row, idx }]);
+    }
+  });
+  return groups;
+}
+
 // ── Render Route ──────────────────────────────────────────
 function renderRoute(rows) {
-  resultCount.textContent = `${rows.length} точек`;
-  allDeliveredBtn.classList.toggle('hidden', rows.length === 0);
-  yandexRouteBtn.classList.toggle('hidden', rows.length === 0);
-
+  routeGroups = groupRowsByAddress(rows);
+  const pointCount = routeGroups.length;
+  resultCount.textContent = `${pointCount} точек`;
+  allDeliveredBtn.classList.toggle('hidden', !rows.length);
+  yandexRouteBtn.classList.toggle('hidden', !rows.length);
   if (!rows.length) {
     routeList.innerHTML = '<div class="empty-state">Совпадений не найдено</div>';
     return;
   }
   routeList.innerHTML = '';
-  rows.forEach((row, i) => routeList.appendChild(createRouteCard(row, i)));
+  routeGroups.forEach((group, gIdx) => routeList.appendChild(createGroupCard(group, gIdx)));
 }
 
 // ── Yandex Multi-point Route ──────────────────────────────
 function buildYandexRoute() {
-  const addresses = currentRows
-    .filter(r => r.deliveryAddress)
-    .map(r => r.deliveryAddress);
-  if (!addresses.length) return;
-  const rtext = addresses.map(a => encodeURIComponent(a)).join('~');
-  window.open(`https://yandex.ru/maps/?rtext=${rtext}&rtt=auto`, '_blank', 'noopener,noreferrer');
+  const addrs = routeGroups.length
+    ? routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean)
+    : currentRows.map(r => r.deliveryAddress).filter(Boolean);
+  if (!addrs.length) return;
+  window.open(
+    `https://yandex.ru/maps/?rtext=${addrs.map(a => encodeURIComponent(a)).join('~')}&rtt=auto`,
+    '_blank', 'noopener,noreferrer'
+  );
 }
 
-// ── Route Card ────────────────────────────────────────────
-function createRouteCard(row, index) {
-  const address  = row.deliveryAddress || 'Адрес не указан';
-  const orderId  = row.orderId  || '—';
-  const orderNum = row.orderNumber || '—';
+// ── Group Card ────────────────────────────────────────────
+function groupInfoEqual(group) {
+  if (group.length <= 1) return true;
+  const ref = group[0].row;
+  return group.slice(1).every(({ row }) =>
+    row.grossWeight    === ref.grossWeight &&
+    row.buyer          === ref.buyer &&
+    row.comment        === ref.comment &&
+    row.responsible    === ref.responsible &&
+    row.deliveryService=== ref.deliveryService &&
+    row.orderId        === ref.orderId
+  );
+}
+
+function detailGridHtml(row, address) {
+  return `<div class="detail-grid">
+    <div><strong>Адрес</strong><span>${escapeHtml(address)}</span></div>
+    <div><strong>Номер заказа</strong><span>${escapeHtml(row.orderId || '—')}</span></div>
+    <div><strong>Вес (кг)</strong><span>${escapeHtml(row.grossWeight) || '—'}</span></div>
+    <div><strong>Покупатель</strong><span>${escapeHtml(row.buyer) || '—'}</span></div>
+    <div><strong>Комментарий</strong><span>${escapeHtml(row.comment) || '—'}</span></div>
+    <div><strong>Ответственный</strong><span>${escapeHtml(row.responsible) || '—'}</span></div>
+    <div><strong>Служба доставки</strong><span>${escapeHtml(row.deliveryService) || '—'}</span></div>
+    <div><strong>Номер РасхНакл</strong><span>${escapeHtml(row.orderNumber || '—')}</span></div>
+  </div>`;
+}
+
+function createGroupCard(group, gIdx) {
+  const isMulti  = group.length > 1;
+  const firstRow = group[0].row;
+  const address  = firstRow.deliveryAddress || 'Адрес не указан';
   const yandex   = `https://yandex.ru/maps/?text=${encodeURIComponent(address)}`;
-  const status   = row._status || 'pending';
+  const allDel   = group.every(({ row }) => row._status === 'delivered');
+  const sameInfo = groupInfoEqual(group);
 
   const card = document.createElement('div');
-  card.className = 'route-card' + (status === 'delivered' ? ' is-delivered' : '');
+  card.className = 'route-card' + (allDel ? ' is-delivered' : '');
   card.draggable = true;
-  card.dataset.index = String(index);
+  card.dataset.groupIndex = String(gIdx);
+
+  // Build card-details HTML
+  let detailsHtml = '';
+  if (!isMulti) {
+    // Single item: full detail grid
+    detailsHtml = detailGridHtml(firstRow, address);
+  } else if (sameInfo) {
+    // Multiple items with identical info: shared grid + order list
+    detailsHtml = detailGridHtml(firstRow, address) + `
+      <div class="group-orders">
+        ${group.map(({ row, idx }) => `
+          <div class="group-order-row" data-row-idx="${idx}">
+            <span class="group-order-num">Накл: ${escapeHtml(row.orderNumber || '—')}</span>
+            <button class="delivered-btn${row._status === 'delivered' ? ' is-delivered' : ''}" data-row-idx="${idx}" type="button">✓</button>
+          </div>`).join('')}
+      </div>`;
+  } else {
+    // Multiple items with different info: separate sections per item
+    detailsHtml = group.map(({ row, idx }) => `
+      <div class="group-order-section">
+        <div class="group-section-header">
+          <span>Накл: ${escapeHtml(row.orderNumber || '—')}</span>
+          <button class="delivered-btn${row._status === 'delivered' ? ' is-delivered' : ''}" data-row-idx="${idx}" type="button">✓</button>
+        </div>
+        ${detailGridHtml(row, address)}
+      </div>`).join('');
+  }
+
+  const singleDeliveredBtn = !isMulti
+    ? `<button class="delivered-btn${firstRow._status === 'delivered' ? ' is-delivered' : ''}" type="button" data-single>✓</button>`
+    : '';
 
   card.innerHTML = `
     <div class="card-main">
@@ -553,105 +616,128 @@ function createRouteCard(row, index) {
         <span class="dot"></span><span class="dot"></span>
         <span class="dot"></span><span class="dot"></span>
       </div>
-      <div class="route-badge">${index + 1}</div>
+      <div class="route-badge">${gIdx + 1}</div>
       <div class="route-info">
         <div class="route-address" title="${escapeHtml(address)}">${escapeHtml(address)}</div>
-        <div class="route-ordnum">Накладная: ${escapeHtml(orderNum)}</div>
+        <div class="route-ordnum">
+          ${isMulti
+            ? `<span class="group-badge-count">${group.length} заказа</span>`
+            : `Накладная: ${escapeHtml(firstRow.orderNumber || '—')}`}
+        </div>
       </div>
       <div class="route-actions">
-        <select class="status-select ${status !== 'pending' ? 'status-' + status : ''}" aria-label="Статус">
-          <option value="pending"    ${status === 'pending'    ? 'selected' : ''}>Ожидает</option>
-          <option value="inprogress" ${status === 'inprogress' ? 'selected' : ''}>В пути</option>
-          <option value="delivered"  ${status === 'delivered'  ? 'selected' : ''}>Доставлен</option>
-          <option value="failed"     ${status === 'failed'     ? 'selected' : ''}>Не доставлен</option>
-        </select>
+        ${singleDeliveredBtn}
         <button class="maps-btn" type="button">Maps</button>
       </div>
     </div>
-    <div class="card-details hidden">
-      <div class="detail-grid">
-        <div><strong>Адрес</strong><span>${escapeHtml(address)}</span></div>
-        <div><strong>Номер заказа</strong><span>${escapeHtml(orderId)}</span></div>
-        <div><strong>Вес (кг)</strong><span>${escapeHtml(row.grossWeight) || '—'}</span></div>
-        <div><strong>Покупатель</strong><span>${escapeHtml(row.buyer) || '—'}</span></div>
-        <div><strong>Комментарий</strong><span>${escapeHtml(row.comment) || '—'}</span></div>
-        <div><strong>Ответственный</strong><span>${escapeHtml(row.responsible) || '—'}</span></div>
-        <div><strong>Служба доставки</strong><span>${escapeHtml(row.deliveryService) || '—'}</span></div>
-        <div><strong>Номер РасхНакл</strong><span>${escapeHtml(orderNum)}</span></div>
-      </div>
-    </div>
+    <div class="card-details hidden">${detailsHtml}</div>
   `;
 
+  // Update badge colour helper
+  function refreshBadge() {
+    const nowAllDel = group.every(({ row }) => row._status === 'delivered');
+    card.classList.toggle('is-delivered', nowAllDel);
+    card.querySelector('.route-badge').style.background = nowAllDel ? 'var(--green)' : '';
+  }
+
+  // Expand / collapse
   const cardMain = card.querySelector('.card-main');
   const details  = card.querySelector('.card-details');
   cardMain.addEventListener('click', e => {
-    if (e.target.closest('.route-actions')) return;
+    if (e.target.closest('.route-actions') || e.target.closest('.delivered-btn')) return;
     details.classList.toggle('hidden');
   });
 
-  const select = card.querySelector('.status-select');
-  select.addEventListener('change', e => {
-    e.stopPropagation();
-    const newStatus = select.value;
-    row._status = newStatus;
-    select.className = `status-select${newStatus !== 'pending' ? ' status-' + newStatus : ''}`;
-    card.classList.toggle('is-delivered', newStatus === 'delivered');
-    card.querySelector('.route-badge').style.background = newStatus === 'delivered' ? 'var(--green)' : '';
-    persistStatus(index, newStatus);
-    if (newStatus === 'delivered') addToHistory(row, index);
-    else removeFromHistory(index);
-    renderCalendar();
+  // Single-item delivered toggle (in card-main)
+  const singleBtn = card.querySelector('[data-single]');
+  if (singleBtn) {
+    singleBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const { row, idx } = group[0];
+      const isDel = row._status === 'delivered';
+      row._status = isDel ? 'pending' : 'delivered';
+      singleBtn.classList.toggle('is-delivered', !isDel);
+      persistStatus(idx, row._status);
+      if (!isDel) addToHistory(row, idx); else removeFromHistory(idx);
+      refreshBadge();
+      renderCalendar();
+    });
+  }
+
+  // Multi-item delivered toggles (in card-details)
+  card.querySelectorAll('.card-details .delivered-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const rowIdx = parseInt(btn.dataset.rowIdx, 10);
+      const item   = group.find(i => i.idx === rowIdx);
+      if (!item) return;
+      const { row } = item;
+      const isDel = row._status === 'delivered';
+      row._status = isDel ? 'pending' : 'delivered';
+      btn.classList.toggle('is-delivered', !isDel);
+      persistStatus(rowIdx, row._status);
+      if (!isDel) addToHistory(row, rowIdx); else removeFromHistory(rowIdx);
+      refreshBadge();
+      renderCalendar();
+    });
   });
 
+  // Maps button
   card.querySelector('.maps-btn').addEventListener('click', e => {
     e.stopPropagation();
     window.open(yandex, '_blank', 'noopener,noreferrer');
   });
 
-  card.addEventListener('dragstart', onCardDragStart);
-  card.addEventListener('dragover',  onCardDragOver);
-  card.addEventListener('drop',      onCardDrop);
-  card.addEventListener('dragend',   onCardDragEnd);
+  // Drag
+  card.addEventListener('dragstart', onGroupDragStart);
+  card.addEventListener('dragover',  onGroupDragOver);
+  card.addEventListener('drop',      onGroupDrop);
+  card.addEventListener('dragend',   onGroupDragEnd);
 
+  // Set initial badge
+  refreshBadge();
   return card;
 }
 
-// ── Drag & Drop ───────────────────────────────────────────
-function onCardDragStart(ev) {
-  dragSrcIndex = parseInt(this.dataset.index, 10);
+// ── Group Drag & Drop ─────────────────────────────────────
+function onGroupDragStart(ev) {
+  dragSrcGroupIdx = parseInt(this.dataset.groupIndex, 10);
   ev.dataTransfer.effectAllowed = 'move';
   requestAnimationFrame(() => this.classList.add('dragging'));
 }
-function onCardDragOver(ev) {
+function onGroupDragOver(ev) {
   ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
   document.querySelectorAll('.route-card').forEach(c => c.classList.remove('drag-over'));
   this.classList.add('drag-over');
 }
-function onCardDrop(ev) {
+function onGroupDrop(ev) {
   ev.preventDefault();
-  const dest = parseInt(this.dataset.index, 10);
-  if (dragSrcIndex === null || dragSrcIndex === dest) return;
-  const [moved] = currentRows.splice(dragSrcIndex, 1);
-  currentRows.splice(dest, 0, moved);
+  const dest = parseInt(this.dataset.groupIndex, 10);
+  if (dragSrcGroupIdx === null || dragSrcGroupIdx === dest) return;
+  const [moved] = routeGroups.splice(dragSrcGroupIdx, 1);
+  routeGroups.splice(dest, 0, moved);
+  currentRows = routeGroups.flatMap(g => g.map(i => i.row));
   renderRoute(currentRows);
 }
-function onCardDragEnd() {
+function onGroupDragEnd() {
   document.querySelectorAll('.route-card').forEach(c => c.classList.remove('dragging', 'drag-over'));
-  dragSrcIndex = null;
+  dragSrcGroupIdx = null;
 }
 
 // ── Bulk: All Delivered ───────────────────────────────────
 function markAllDelivered() {
   currentRows.forEach((row, i) => {
-    row._status = 'delivered';
-    persistStatus(i, 'delivered');
-    addToHistory(row, i);
+    if (row._status !== 'delivered') {
+      row._status = 'delivered';
+      persistStatus(i, 'delivered');
+      addToHistory(row, i);
+    }
   });
   renderRoute(currentRows);
   renderCalendar();
 }
 
-// ── Status Persistence (localStorage) ────────────────────
+// ── Status Persistence ────────────────────────────────────
 function persistStatus(index, status) {
   if (!activeRouteId) return;
   const all = JSON.parse(localStorage.getItem(lsKey(LS_STATUSES)) || '{}');
@@ -664,26 +750,20 @@ function historyKey(index) { return `${activeRouteId || 'local'}_${index}`; }
 
 function addToHistory(row, index) {
   const history = JSON.parse(localStorage.getItem(lsKey(LS_HISTORY)) || '[]');
-  const key = historyKey(index);
+  const key     = historyKey(index);
   const existing = history.findIndex(h => h.key === key);
   const record = {
-    key,
-    date: todayStr(),
-    completedAt: new Date().toISOString(),
-    address:     row.deliveryAddress || 'Адрес не указан',
-    orderNumber: row.orderNumber || '—',
-    orderId:     row.orderId || '—',
-    buyer:       row.buyer || ''
+    key, date: todayStr(), completedAt: new Date().toISOString(),
+    address: row.deliveryAddress || 'Адрес не указан',
+    orderNumber: row.orderNumber || '—', orderId: row.orderId || '—', buyer: row.buyer || ''
   };
-  if (existing >= 0) history[existing] = record;
-  else history.push(record);
+  if (existing >= 0) history[existing] = record; else history.push(record);
   localStorage.setItem(lsKey(LS_HISTORY), JSON.stringify(history));
 }
 
 function removeFromHistory(index) {
-  const key = historyKey(index);
   const history = JSON.parse(localStorage.getItem(lsKey(LS_HISTORY)) || '[]')
-    .filter(h => h.key !== key);
+    .filter(h => h.key !== historyKey(index));
   localStorage.setItem(lsKey(LS_HISTORY), JSON.stringify(history));
 }
 
@@ -698,83 +778,86 @@ function shiftCalendar(delta) {
 function renderCalendar() {
   const history = JSON.parse(localStorage.getItem(lsKey(LS_HISTORY)) || '[]');
 
-  // Update badge (always shows current month's count regardless of calendar navigation)
-  const todayMonth = todayStr().slice(0, 7);
-  const thisMonthCount = history.filter(h => h.date.startsWith(todayMonth)).length;
+  // Badge (always current month)
+  const thisMonthCount = history.filter(h => h.date.startsWith(todayStr().slice(0, 7))).length;
   historyBadge.textContent = String(thisMonthCount);
   historyBadge.classList.toggle('hidden', thisMonthCount === 0);
 
-  // Monthly count for displayed calendar month
   const displayMonth = `${calendarState.year}-${String(calendarState.month + 1).padStart(2, '0')}`;
-  const displayMonthCount = history.filter(h => h.date.startsWith(displayMonth)).length;
-  monthlyCount.textContent = String(displayMonthCount);
+  monthlyCount.textContent = String(history.filter(h => h.date.startsWith(displayMonth)).length);
 
-  // Month label
-  const labelDate = new Date(calendarState.year, calendarState.month, 1);
-  calMonthLabel.textContent = labelDate.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+  calMonthLabel.textContent = new Date(calendarState.year, calendarState.month, 1)
+    .toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
-  // Build set of dates with deliveries
   const deliveryDates = new Set(history.map(h => h.date));
   const today = todayStr();
 
-  // First day of month, offset for Monday-first week
   const firstDay = new Date(calendarState.year, calendarState.month, 1);
   const lastDay  = new Date(calendarState.year, calendarState.month + 1, 0);
-  let startDow = firstDay.getDay(); // 0=Sun
-  startDow = startDow === 0 ? 6 : startDow - 1; // Mon=0
+  let startDow = firstDay.getDay();
+  startDow = startDow === 0 ? 6 : startDow - 1; // Mon = 0
 
   const cells = [];
-  ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(d => {
-    cells.push(`<div class="cal-header-cell">${d}</div>`);
-  });
-  for (let i = 0; i < startDow; i++) {
-    cells.push('<div class="cal-cell"></div>');
-  }
+  ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(d => cells.push(`<div class="cal-header-cell">${d}</div>`));
+  for (let i = 0; i < startDow; i++) cells.push('<div class="cal-cell"></div>');
   for (let d = 1; d <= lastDay.getDate(); d++) {
-    const dateStr = `${calendarState.year}-${String(calendarState.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const hasDeliveries = deliveryDates.has(dateStr);
-    const isToday       = dateStr === today;
-    const isSelected    = dateStr === selectedCalDay;
+    const ds  = `${calendarState.year}-${String(calendarState.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const cls = ['cal-cell',
-      hasDeliveries ? 'has-deliveries' : '',
-      isToday       ? 'is-today'       : '',
-      isSelected    ? 'is-selected'    : ''
+      deliveryDates.has(ds) ? 'has-deliveries' : '',
+      ds === today           ? 'is-today'       : '',
+      ds === selectedCalDay  ? 'is-selected'    : ''
     ].filter(Boolean).join(' ');
-    cells.push(`<div class="${cls}" data-date="${dateStr}">${d}${hasDeliveries ? '<span class="cal-dot"></span>' : ''}</div>`);
+    cells.push(`<div class="${cls}" data-date="${ds}">${d}${deliveryDates.has(ds) ? '<span class="cal-dot"></span>' : ''}</div>`);
   }
   calGrid.innerHTML = cells.join('');
 
-  calGrid.querySelectorAll('.cal-cell.has-deliveries').forEach(cell => {
+  calGrid.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
     cell.addEventListener('click', () => {
       selectedCalDay = selectedCalDay === cell.dataset.date ? null : cell.dataset.date;
-      renderCalendar();
+      showCalDayDetail(selectedCalDay, history);
+      // Re-mark selected cell without full re-render
+      calGrid.querySelectorAll('.cal-cell').forEach(c => c.classList.toggle('is-selected', c.dataset.date === selectedCalDay));
     });
   });
 
-  // Day detail panel
-  if (selectedCalDay) {
-    const dayHistory = history
-      .filter(h => h.date === selectedCalDay)
-      .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
-    if (dayHistory.length) {
-      calDayDetail.classList.remove('hidden');
-      calDayDetail.innerHTML = `
-        <div class="cal-detail-header">${formatCalDate(selectedCalDay)} — ${dayHistory.length} доставок</div>
-        ${dayHistory.map(h => {
-          const time = new Date(h.completedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-          return `<div class="history-item">
-            <div class="history-addr">${escapeHtml(h.address)}</div>
-            <div class="history-meta">${time} · Накладная: ${escapeHtml(h.orderNumber)}</div>
-          </div>`;
-        }).join('')}`;
-      return;
-    }
-  }
-  calDayDetail.classList.add('hidden');
+  showCalDayDetail(selectedCalDay, history);
+
+  // Async: fetch route indicators for the displayed month
+  fetchRouteIndicators(displayMonth);
 }
 
-function formatCalDate(dateStr) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+async function fetchRouteIndicators(month) {
+  try {
+    const res = await fetch(`${API_BASE}/routes?month=${month}`, { headers: authHeaders() });
+    if (!res.ok) return;
+    const { routes } = await res.json();
+    const routeDates = new Set(routes.map(r => r.routeDate));
+    calGrid.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
+      if (routeDates.has(cell.dataset.date)) cell.classList.add('has-route');
+    });
+  } catch { /* ignore */ }
+}
+
+function showCalDayDetail(dateStr, history) {
+  if (!dateStr) { calDayDetail.classList.add('hidden'); return; }
+  const dayHistory = (history || [])
+    .filter(h => h.date === dateStr)
+    .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+  if (!dayHistory.length) { calDayDetail.classList.add('hidden'); return; }
+  calDayDetail.classList.remove('hidden');
+  calDayDetail.innerHTML = `
+    <div class="cal-detail-header">${formatCalDate(dateStr)} — ${dayHistory.length} доставок</div>
+    ${dayHistory.map(h => {
+      const time = new Date(h.completedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      return `<div class="history-item">
+        <div class="history-addr">${escapeHtml(h.address)}</div>
+        <div class="history-meta">${time} · Накладная: ${escapeHtml(h.orderNumber)}</div>
+      </div>`;
+    }).join('')}`;
+}
+
+function formatCalDate(ds) {
+  return new Date(ds + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
 
 // ── Tab Switching ─────────────────────────────────────────
@@ -795,6 +878,6 @@ function pluralRu(n) {
 
 function escapeHtml(v) {
   return String(v ?? '')
-    .replaceAll('&', '&amp;').replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+    .replaceAll('&','&amp;').replaceAll('<','&lt;')
+    .replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 }
