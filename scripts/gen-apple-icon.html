@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Generate Apple Touch Icon</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; background: #f5f5f7; }
+    canvas { border-radius: 40px; box-shadow: 0 4px 20px rgba(0,0,0,.2); }
+    a.btn {
+      display: inline-block; margin-top: 1.2rem;
+      padding: .6rem 1.4rem; background: #FF6B00; color: #fff;
+      text-decoration: none; border-radius: 10px; font-weight: 600;
+    }
+    code { background: #e5e5ea; padding: .1em .4em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>Apple Touch Icon — LogiRoute</h2>
+  <canvas id="c" width="180" height="180"></canvas>
+  <br>
+  <a id="dl" class="btn" download="apple-touch-icon.png">Download apple-touch-icon.png</a>
+  <p>Save the file to <code>public/apple-touch-icon.png</code>, then commit it.</p>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx    = canvas.getContext('2d');
+
+    // Rounded orange background (iOS icon corner radius ≈ 40/180)
+    const r = 40;
+    ctx.fillStyle = '#FF6B00';
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(180 - r, 0);  ctx.quadraticCurveTo(180, 0,   180, r);
+    ctx.lineTo(180, 180 - r); ctx.quadraticCurveTo(180, 180, 180 - r, 180);
+    ctx.lineTo(r, 180);       ctx.quadraticCurveTo(0, 180,   0, 180 - r);
+    ctx.lineTo(0, r);         ctx.quadraticCurveTo(0, 0,     r, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Truck emoji centred
+    ctx.font = '100px serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🚚', 90, 94);
+
+    document.getElementById('dl').href = canvas.toDataURL('image/png');
+  </script>
+</body>
+</html>
