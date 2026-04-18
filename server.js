@@ -302,6 +302,13 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const path = url.pathname;
 
+    // Static files — no auth required
+    if (!path.startsWith('/api/')) {
+      if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, path);
+      return reply(req, res, 405, { error: 'Method Not Allowed' });
+    }
+
+    // API routes
     if (req.method === 'POST' && path === '/api/login')  return handleLogin(req, res);
     if (req.method === 'POST' && path === '/api/logout') return handleLogout(req, res);
     if (path === '/api/me') return handleMe(req, res);
@@ -322,7 +329,6 @@ const server = http.createServer(async (req, res) => {
     const adminUserMatch  = path.match(/^\/api\/admin\/users\/([^/]+)$/);
     if (adminUserMatch)   return handleAdminUserById(req, res, user, adminUserMatch[1]);
 
-    if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, path);
     return reply(req, res, 404, { error: 'Not Found' });
   } catch (error) {
     console.error(error);
