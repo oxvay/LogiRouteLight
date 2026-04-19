@@ -693,22 +693,30 @@ function showToast(msg, ms = 2800) {
 
 // ── Multi-point Route (menu: Yandex / Google Maps) ────────
 function buildRouteUrls(addrs) {
-  const yandex = `https://yandex.ru/maps/?mode=routes&rtext=${addrs.map(a => encodeURIComponent(a)).join('~')}&rtt=auto`;
+  const rtext  = addrs.map(encodeURIComponent).join('~');
+  const isIOS  = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  // On iOS, the yandexmaps:// scheme opens the app directly and reliably.
+  // target="_blank" with https://yandex.ru/maps/ bypasses universal-link detection on iOS.
+  const yandex    = isIOS
+    ? `yandexmaps://maps.yandex.ru/?rtext=${rtext}&rtt=auto`
+    : `https://yandex.ru/maps/?mode=routes&rtext=${rtext}&rtt=auto`;
+  const yandexNew = !isIOS; // on iOS navigate in current tab so the scheme fires correctly
+
   // Google Maps supports up to 9 waypoints + destination reliably
   const last = addrs[addrs.length - 1];
   const waypoints = addrs.slice(0, -1).map(encodeURIComponent).join('|');
   const google = waypoints
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(last)}&waypoints=${waypoints}&travelmode=driving`
     : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(last)}&travelmode=driving`;
-  return { yandex, google };
+  return { yandex, yandexNew, google };
 }
 
 function openRouteMenu(anchor) {
   const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
   if (!addrs.length) return;
-  const { yandex, google } = buildRouteUrls(addrs);
+  const { yandex, yandexNew, google } = buildRouteUrls(addrs);
   showPopupMenu(anchor, [
-    { label: 'Яндекс Карты',  icon: '🗺', href: yandex, external: true },
+    { label: 'Яндекс Карты',  icon: '🗺', href: yandex, external: yandexNew },
     { label: 'Google Maps',   icon: '🗺', href: google, external: true }
   ]);
 }

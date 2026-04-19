@@ -8,14 +8,7 @@
       "createdAt": "2026-04-18T00:00:00.000Z"
     }
   ],
-  "sessions": [
-    {
-      "id": "session_eadb20f2-2ee8-47fd-83b1-d8a6ad2e66d2",
-      "userId": "user-admin-root",
-      "token": "sess_76a0acff-c5a7-4dcc-b0a8-3a90f53d368b",
-      "expiresAt": "2026-05-18T17:49:51.874Z"
-    }
-  ],
+  "sessions": [],
   "routes": [],
   "routeItems": [],
   "monthlyStats": []
