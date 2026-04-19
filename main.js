@@ -691,33 +691,31 @@ function showToast(msg, ms = 2800) {
   el._t = setTimeout(() => el.classList.remove('visible'), ms);
 }
 
-// ── Multi-point Route (menu: Yandex / Google Maps) ────────
+// ── Multi-point Route (menu: Yandex Maps / Yandex Navigator) ────────
 function buildRouteUrls(addrs) {
   const rtext  = addrs.map(encodeURIComponent).join('~');
   const isIOS  = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  // On iOS, the yandexmaps:// scheme opens the app directly and reliably.
-  // target="_blank" with https://yandex.ru/maps/ bypasses universal-link detection on iOS.
+  // On iOS, custom schemes open the app directly; target="_blank" with https:// bypasses universal links.
   const yandex    = isIOS
     ? `yandexmaps://maps.yandex.ru/?rtext=${rtext}&rtt=auto`
     : `https://yandex.ru/maps/?mode=routes&rtext=${rtext}&rtt=auto`;
-  const yandexNew = !isIOS; // on iOS navigate in current tab so the scheme fires correctly
+  const yandexNew = !isIOS;
 
-  // Google Maps supports up to 9 waypoints + destination reliably
-  const last = addrs[addrs.length - 1];
-  const waypoints = addrs.slice(0, -1).map(encodeURIComponent).join('|');
-  const google = waypoints
-    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(last)}&waypoints=${waypoints}&travelmode=driving`
-    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(last)}&travelmode=driving`;
-  return { yandex, yandexNew, google };
+  const navi    = isIOS
+    ? `yandexnavi://maps.yandex.ru/?rtext=${rtext}&rtt=auto`
+    : `https://yandex.ru/navi/?rtext=${rtext}&rtt=auto`;
+  const naviNew = !isIOS;
+
+  return { yandex, yandexNew, navi, naviNew };
 }
 
 function openRouteMenu(anchor) {
   const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
   if (!addrs.length) return;
-  const { yandex, yandexNew, google } = buildRouteUrls(addrs);
+  const { yandex, yandexNew, navi, naviNew } = buildRouteUrls(addrs);
   showPopupMenu(anchor, [
-    { label: 'Яндекс Карты',  icon: '🗺', href: yandex, external: yandexNew },
-    { label: 'Google Maps',   icon: '🗺', href: google, external: true }
+    { label: 'Яндекс Карты',      icon: '🗺', href: yandex, external: yandexNew },
+    { label: 'Яндекс Навигатор',  icon: '🧭', href: navi,   external: naviNew  }
   ]);
 }
 
