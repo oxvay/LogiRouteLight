@@ -695,15 +695,12 @@ function showToast(msg, ms = 2800) {
 function buildRouteUrls(addrs) {
   const rtext  = addrs.map(encodeURIComponent).join('~');
   const isIOS  = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  // On iOS, custom schemes open the app directly; target="_blank" with https:// bypasses universal links.
-  const yandex    = isIOS
-    ? `yandexmaps://maps.yandex.ru/?rtext=${rtext}&rtt=auto`
-    : `https://yandex.ru/maps/?mode=routes&rtext=${rtext}&rtt=auto`;
+  // Use HTTPS on all platforms — iOS Universal Links open the app with the full route.
+  // On iOS open in current tab (no _blank) so Universal Links fire; desktop opens new tab.
+  const yandex    = `https://yandex.ru/maps/?mode=routes&rtext=${rtext}&rtt=auto`;
   const yandexNew = !isIOS;
 
-  const navi    = isIOS
-    ? `yandexnavi://maps.yandex.ru/?rtext=${rtext}&rtt=auto`
-    : `https://yandex.ru/navi/?rtext=${rtext}&rtt=auto`;
+  const navi    = `https://yandex.ru/navi/?rtext=${rtext}&rtt=auto`;
   const naviNew = !isIOS;
 
   return { yandex, yandexNew, navi, naviNew };
