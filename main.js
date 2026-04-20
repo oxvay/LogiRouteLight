@@ -1110,7 +1110,7 @@ function escapeHtml(v) {
 
 // ── Map Tab ───────────────────────────────────────────────
 const LS_MAP_CITY  = 'lrl_map_city';
-const LS_GEOCACHE  = 'lrl_geocache_v2';
+const LS_GEOCACHE  = 'lrl_geocache_v3';
 let   mapInstance  = null;
 let   leafletLoaded = false;
 
@@ -1147,17 +1147,43 @@ function loadLeaflet() {
   });
 }
 
+function expandRuAddress(raw) {
+  return raw
+    .replace(/^\d{6}[\s,]+/, '')           // strip postal code
+    .replace(/\bг\.\s*/gi, '')             // strip city prefix "г."
+    .replace(/\bул\.\s*/gi, 'улица ')
+    .replace(/\bпр-т\b/gi, 'проспект')
+    .replace(/\bпр\.\s*/gi, 'проспект ')
+    .replace(/\bпер\.\s*/gi, 'переулок ')
+    .replace(/\bб-р\b/gi, 'бульвар')
+    .replace(/\bбул\.\s*/gi, 'бульвар ')
+    .replace(/\bпл\.\s*/gi, 'площадь ')
+    .replace(/\bш\.\s*/gi, 'шоссе ')
+    .replace(/\bнаб\.\s*/gi, 'набережная ')
+    .replace(/\bмкр\.\s*/gi, 'микрорайон ')
+    .replace(/\bд\.\s*(?=\d)/gi, '')       // "д. 5" → "5"
+    .replace(/\bкорп?\.\s*(?=\d)/gi, ' корпус ')
+    .replace(/\bстр\.\s*(?=\d)/gi, ' строение ')
+    .replace(/,\s*,/g, ',')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function geocodeAddr(addr, city) {
-  const fullAddr = city ? `${city}, ${addr}` : addr;
+  const cacheKey = city ? `${city}|${addr}` : addr;
   const cache = getGeoCache();
-  if (cache[fullAddr]) return cache[fullAddr];
+  if (cache[cacheKey]) return cache[cacheKey];
+  const expanded = expandRuAddress(addr);
+  const query    = city ? `${city}, ${expanded}` : expanded;
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fullAddr)}&format=json&limit=1`;
-    const res = await fetch(url, { headers: { 'Accept-Language': 'ru,en' } });
+    const params = new URLSearchParams({ q: query, format: 'json', limit: '1', countrycodes: 'ru' });
+    const res  = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+      headers: { 'Accept-Language': 'ru,en' }
+    });
     const data = await res.json();
     if (data[0]) {
       const v = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-      saveGeoCache({ ...getGeoCache(), [fullAddr]: v });
+      saveGeoCache({ ...getGeoCache(), [cacheKey]: v });
       return v;
     }
   } catch {}
@@ -1217,8 +1243,8 @@ async function renderMap() {
 
   for (let i = 0; i < addrs.length; i++) {
     const addr     = addrs[i];
-    const fullAddr = city ? `${city}, ${addr}` : addr;
-    const cached   = getGeoCache()[fullAddr];
+    const cacheKey = city ? `${city}|${addr}` : addr;
+    const cached   = getGeoCache()[cacheKey];
 
     let coords;
     if (cached) {
@@ -1234,11 +1260,15 @@ async function renderMap() {
 
     if (!coords) continue;
 
-    const group     = routeGroups[i];
-    const delivered = group.every(({ row }) => row._status === 'delivered');
-    const firstRow  = group[0].row;
-    const naviUrl   = `https://yandex.ru/navi/?text=${encodeURIComponent(addr)}`;
+    const group      = routeGroups[i];
+    const delivered  = group.every(({ row }) => row._status === 'delivered');
+    const firstRow   = group[0].row;
+    const phones     = collectGroupPhones(group);
+    const naviUrl    = `https://yandex.ru/navi/?text=${encodeURIComponent(addr)}`;
     const naviTarget = isIOS ? '' : ' target="_blank" rel="noopener noreferrer"';
+    const callHtml   = phones[0]
+      ? `<a href="tel:${phones[0].tel}" style="background:#34C759;color:#fff;padding:9px 13px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;flex-shrink:0">📞</a>`
+      : '';
 
     const popup =
       `<div style="font-family:system-ui,sans-serif;max-width:240px">` +
@@ -1247,7 +1277,10 @@ async function renderMap() {
       (firstRow.grossWeight ? `<div style="font-size:12px;margin-top:4px">⚖️ ${escapeHtml(firstRow.grossWeight)} кг</div>` : '') +
       (firstRow.comment     ? `<div style="font-size:12px;margin-top:4px">💬 ${escapeHtml(firstRow.comment)}</div>` : '') +
       (delivered ? `<div style="color:#34C759;font-weight:700;font-size:12px;margin-top:6px">✓ Доставлено</div>` : '') +
-      `<a href="${naviUrl}"${naviTarget} style="display:block;margin-top:10px;background:#FF6B00;color:#fff;text-align:center;padding:9px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px">🧭 Открыть в Навигаторе</a>` +
+      `<div style="display:flex;gap:8px;margin-top:10px">` +
+      `<a href="${naviUrl}"${naviTarget} style="flex:1;background:#FF6B00;color:#fff;text-align:center;padding:9px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px">🧭 Навигатор</a>` +
+      callHtml +
+      `</div>` +
       `</div>`;
 
     L.marker([coords.lat, coords.lon], { icon: makeLeafletIcon(i + 1, delivered) })
