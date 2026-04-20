@@ -258,7 +258,7 @@ function geocodeNominatim(q) {
 
 async function geocodePhoton(q) {
   const url = 'https://photon.komoot.io/api/?' +
-    new URLSearchParams({ q, limit: '1', lang: 'ru' });
+    new URLSearchParams({ q, limit: '1' });
   const data = await fetchJsonTimeout(url, {}, 6000);
   const feat = data?.features?.find(f => f.properties?.countrycode === 'RU') ?? data?.features?.[0];
   if (!feat) return null;

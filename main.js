@@ -1143,23 +1143,30 @@ function loadLeaflet() {
 }
 
 function expandRuAddress(raw) {
+  // \b doesn't work with Cyrillic — use negative lookbehind for Cyrillic chars instead
+  const NC = '(?<![А-ЯЁа-яё])';
   return raw
     .replace(/^\d{6}[\s,]+/, '')
-    .replace(/\bул\.\s*/gi,   'улица ')
-    .replace(/\bпр-т\b/gi,    'проспект')
-    .replace(/\bпр\.\s*/gi,   'проспект ')
-    .replace(/\bпер\.\s*/gi,  'переулок ')
-    .replace(/\bб-р\b/gi,     'бульвар')
-    .replace(/\bбул\.\s*/gi,  'бульвар ')
-    .replace(/\bпл\.\s*/gi,   'площадь ')
-    .replace(/\bш\.\s*/gi,    'шоссе ')
-    .replace(/\bнаб\.\s*/gi,  'набережная ')
-    .replace(/\bмкр\.\s*/gi,  'микрорайон ')
-    .replace(/\bр-н\b/gi,     'район')
-    .replace(/\bд\.\s*(?=\d)/gi, '')
-    .replace(/\bкорп?\.\s*(?=\d)/gi, ' корпус ')
-    .replace(/\bстр\.\s*(?=\d)/gi,   ' строение ')
-    .replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim();
+    .replace(/,\s*метро\s+[^,]*/gi, '')
+    .replace(/,\s*кв\.\/офис.*/gi, '')
+    .replace(new RegExp(NC + 'ул\\.\\s*', 'gi'),   'улица ')
+    .replace(new RegExp(NC + 'пр-кт\\.?\\s*', 'gi'), 'проспект ')
+    .replace(new RegExp(NC + 'пр-т\\b', 'gi'),     'проспект ')
+    .replace(new RegExp(NC + 'пр-д\\.?\\s*', 'gi'), 'проезд ')
+    .replace(new RegExp(NC + 'пр\\.\\s*', 'gi'),   'проспект ')
+    .replace(new RegExp(NC + 'пер\\.\\s*', 'gi'),  'переулок ')
+    .replace(new RegExp(NC + 'б-р(?![А-ЯЁа-яё\\-])', 'gi'), 'бульвар ')
+    .replace(new RegExp(NC + 'бул\\.\\s*', 'gi'),  'бульвар ')
+    .replace(new RegExp(NC + 'пл\\.\\s*', 'gi'),   'площадь ')
+    .replace(new RegExp(NC + 'ш\\.\\s*', 'gi'),    'шоссе ')
+    .replace(new RegExp(NC + 'наб\\.\\s*', 'gi'),  'набережная ')
+    .replace(new RegExp(NC + 'мкр\\.\\s*', 'gi'),  'микрорайон ')
+    .replace(new RegExp(NC + 'р-н(?![А-ЯЁа-яё\\-])', 'gi'), 'район ')
+    .replace(/(?<![А-ЯЁа-яё])д\.\s*(?=вл)/gi, '')
+    .replace(/(?<![А-ЯЁа-яё])д\.\s*(?=\d)/gi, '')
+    .replace(/(?<![А-ЯЁа-яё])корп?\.\s*(?=[\dА-ЯЁа-яё])/gi, ' корпус ')
+    .replace(/(?<![А-ЯЁа-яё])стр\.\s*(?=\d)/gi,   ' строение ')
+    .replace(/,\s*,/g, ',').replace(/,\s*$/, '').replace(/\s+/g, ' ').trim();
 }
 
 function extractLocality(addr) {
