@@ -560,12 +560,7 @@ async function saveRoute(sourceFileName, items) {
 
 // ── Address Grouping ──────────────────────────────────────
 function normalizeAddress(addr) {
-  return (addr || '')
-    .trim()
-    .replace(/^\d{6}[\s,]+/, '') // strip leading 6-digit postal code (e.g. "143444 ")
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .trim();
+  return expandRuAddress(addr || '').toLowerCase();
 }
 
 function groupRowsByAddress(rows) {
