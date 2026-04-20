@@ -682,12 +682,20 @@ html, body {
 .popup-menu-item:active { background: #f2f2f7; }
 
 /* ── Map Tab ─────────────────────────────────────────── */
-.map-frame {
-  display: block;
+.map-controls {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.map-city-row { display: flex; gap: 8px; }
+
+.map-container {
   width: 100%;
-  height: calc(100vh - 290px);
-  min-height: 320px;
+  height: calc(100vh - 350px);
+  min-height: 300px;
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  border: none;
+  overflow: hidden;
 }

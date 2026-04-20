@@ -1088,7 +1088,11 @@ function switchTab(tabId) {
   document.getElementById(tabId).classList.remove('hidden');
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
   if (tabId === 'historyTab') renderCalendar();
-  if (tabId === 'mapTab') renderMap();
+  if (tabId === 'mapTab') {
+    const saved = localStorage.getItem(LS_MAP_CITY);
+    if (mapCityInput && saved !== null) mapCityInput.value = saved;
+    renderMap();
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────
@@ -1105,20 +1109,166 @@ function escapeHtml(v) {
 }
 
 // ── Map Tab ───────────────────────────────────────────────
-function renderMap() {
-  const frame = document.getElementById('mapFrame');
-  const empty = document.getElementById('mapEmpty');
-  const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
+const LS_MAP_CITY  = 'lrl_map_city';
+const LS_GEOCACHE  = 'lrl_geocache_v2';
+let   mapInstance  = null;
+let   leafletLoaded = false;
 
-  if (!addrs.length) {
-    frame.classList.add('hidden');
-    empty.classList.remove('hidden');
-    frame.src = '';
+const mapCityInput  = document.getElementById('mapCityInput');
+const showMapBtn    = document.getElementById('showMapBtn');
+const mapCityStatus = document.getElementById('mapCityStatus');
+
+showMapBtn.addEventListener('click', () => {
+  localStorage.setItem(LS_MAP_CITY, mapCityInput.value.trim());
+  renderMap();
+});
+
+function getGeoCache() {
+  try { return JSON.parse(localStorage.getItem(LS_GEOCACHE) || '{}'); } catch { return {}; }
+}
+function saveGeoCache(c) {
+  try { localStorage.setItem(LS_GEOCACHE, JSON.stringify(c)); } catch {}
+}
+
+function loadLeaflet() {
+  if (leafletLoaded) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    if (!document.querySelector('link[href*="leaflet"]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload = () => { leafletLoaded = true; resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function geocodeAddr(addr, city) {
+  const fullAddr = city ? `${city}, ${addr}` : addr;
+  const cache = getGeoCache();
+  if (cache[fullAddr]) return cache[fullAddr];
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fullAddr)}&format=json&limit=1`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'ru,en' } });
+    const data = await res.json();
+    if (data[0]) {
+      const v = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+      saveGeoCache({ ...getGeoCache(), [fullAddr]: v });
+      return v;
+    }
+  } catch {}
+  return null;
+}
+
+function makeLeafletIcon(num, done) {
+  const fill = done ? '#34C759' : '#FF6B00';
+  return L.divIcon({
+    html: `<div style="width:30px;height:30px;border-radius:50%;background:${fill};border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25)">${num}</div>`,
+    className: '',
+    iconSize:   [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor:[0, -17],
+  });
+}
+
+async function renderMap() {
+  const city  = localStorage.getItem(LS_MAP_CITY) ?? '';
+  const msgEl = document.getElementById('mapMsg');
+  const mapEl = document.getElementById('mapContainer');
+
+  // Pre-fill input with saved city
+  if (mapCityInput && mapCityInput.value === '' && city) mapCityInput.value = city;
+
+  if (!routeGroups.length) {
+    msgEl.textContent = 'Загрузите маршрут, чтобы увидеть карту';
+    msgEl.classList.remove('hidden');
+    mapEl.classList.add('hidden');
     return;
   }
 
-  empty.classList.add('hidden');
-  frame.classList.remove('hidden');
-  const rtext = addrs.map(encodeURIComponent).join('~');
-  frame.src = `https://yandex.ru/maps/?mode=routes&rtext=${rtext}&rtt=auto&output=embed`;
+  msgEl.textContent = 'Загрузка карты…';
+  msgEl.classList.remove('hidden');
+  mapEl.classList.add('hidden');
+
+  try { await loadLeaflet(); }
+  catch {
+    msgEl.textContent = 'Ошибка загрузки. Проверьте интернет.';
+    return;
+  }
+
+  if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+  msgEl.classList.add('hidden');
+  mapEl.classList.remove('hidden');
+
+  mapInstance = L.map(mapEl, { center: [55.75, 37.62], zoom: 10 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(mapInstance);
+
+  const addrs    = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
+  const bounds   = [];
+  let   lastFetch = 0;
+  const isIOS    = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+  for (let i = 0; i < addrs.length; i++) {
+    const addr     = addrs[i];
+    const fullAddr = city ? `${city}, ${addr}` : addr;
+    const cached   = getGeoCache()[fullAddr];
+
+    let coords;
+    if (cached) {
+      coords = cached;
+    } else {
+      // Nominatim rate limit: ≤1 req/sec
+      const wait = 1050 - (Date.now() - lastFetch);
+      if (lastFetch && wait > 0) await new Promise(r => setTimeout(r, wait));
+      mapCityStatus.textContent = `Поиск: ${i + 1} / ${addrs.length}…`;
+      lastFetch = Date.now();
+      coords = await geocodeAddr(addr, city);
+    }
+
+    if (!coords) continue;
+
+    const group     = routeGroups[i];
+    const delivered = group.every(({ row }) => row._status === 'delivered');
+    const firstRow  = group[0].row;
+    const naviUrl   = `https://yandex.ru/navi/?text=${encodeURIComponent(addr)}`;
+    const naviTarget = isIOS ? '' : ' target="_blank" rel="noopener noreferrer"';
+
+    const popup =
+      `<div style="font-family:system-ui,sans-serif;max-width:240px">` +
+      `<b style="font-size:14px">#${i + 1} ${escapeHtml(addr)}</b>` +
+      (firstRow.buyer       ? `<div style="font-size:12px;margin-top:6px">👤 ${escapeHtml(firstRow.buyer)}</div>` : '') +
+      (firstRow.grossWeight ? `<div style="font-size:12px;margin-top:4px">⚖️ ${escapeHtml(firstRow.grossWeight)} кг</div>` : '') +
+      (firstRow.comment     ? `<div style="font-size:12px;margin-top:4px">💬 ${escapeHtml(firstRow.comment)}</div>` : '') +
+      (delivered ? `<div style="color:#34C759;font-weight:700;font-size:12px;margin-top:6px">✓ Доставлено</div>` : '') +
+      `<a href="${naviUrl}"${naviTarget} style="display:block;margin-top:10px;background:#FF6B00;color:#fff;text-align:center;padding:9px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px">🧭 Открыть в Навигаторе</a>` +
+      `</div>`;
+
+    L.marker([coords.lat, coords.lon], { icon: makeLeafletIcon(i + 1, delivered) })
+      .bindPopup(popup)
+      .addTo(mapInstance);
+    bounds.push([coords.lat, coords.lon]);
+
+    if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
+  }
+
+  mapCityStatus.textContent = '';
+
+  if (!bounds.length) {
+    mapInstance.remove(); mapInstance = null;
+    mapEl.classList.add('hidden');
+    msgEl.textContent = city
+      ? 'Адреса не найдены. Проверьте правильность города.'
+      : 'Адреса не найдены. Введите город и нажмите «Показать».';
+    msgEl.classList.remove('hidden');
+    return;
+  }
+
+  if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
 }

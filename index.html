@@ -122,8 +122,15 @@
 
         <!-- ── Map Tab ── -->
         <div id="mapTab" class="hidden">
-          <div id="mapEmpty" class="empty-state hidden">Загрузите маршрут, чтобы увидеть карту</div>
-          <iframe id="mapFrame" class="map-frame" src="" frameborder="0" allowfullscreen title="Маршрут на карте"></iframe>
+          <div class="map-controls">
+            <div class="map-city-row">
+              <input id="mapCityInput" class="numbers-input" type="text" placeholder="Ваш город (напр. Екатеринбург)" autocomplete="off" />
+              <button id="showMapBtn" class="btn-primary btn-sm" type="button">Показать</button>
+            </div>
+            <div id="mapCityStatus" class="numbers-status"></div>
+          </div>
+          <div id="mapMsg" class="empty-state hidden"></div>
+          <div id="mapContainer" class="map-container hidden"></div>
         </div>
 
         <!-- ── History Tab ── -->
