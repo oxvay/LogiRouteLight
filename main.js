@@ -1182,40 +1182,15 @@ function inferDefaultCity(groups) {
   return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
-async function fetchJsonWithTimeout(url, ms = 6000) {
+async function fetchJsonWithTimeout(url, opts = {}, ms = 12000) {
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res = await fetch(url, { ...opts, signal: ctrl.signal });
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
   finally { clearTimeout(timer); }
-}
-
-async function tryPhoton(q) {
-  const url = 'https://photon.komoot.io/api/?' +
-    new URLSearchParams({ q, limit: '1', lang: 'ru' });
-  const data = await fetchJsonWithTimeout(url);
-  const feat = data?.features?.find(f => f.properties?.countrycode === 'RU') ?? data?.features?.[0];
-  if (!feat) return null;
-  const [lon, lat] = feat.geometry.coordinates;
-  return { lat, lon };
-}
-
-// Nominatim requires max 1 req/sec — serialize via a promise chain.
-let nominatimChain = Promise.resolve();
-function tryNominatim(q) {
-  const next = nominatimChain.then(async () => {
-    await new Promise(r => setTimeout(r, 1100));
-    const url = 'https://nominatim.openstreetmap.org/search?' +
-      new URLSearchParams({ q, format: 'json', limit: '1', countrycodes: 'ru', 'accept-language': 'ru' });
-    const data = await fetchJsonWithTimeout(url, 7000);
-    if (!data?.[0]) return null;
-    return { lat: +data[0].lat, lon: +data[0].lon };
-  });
-  nominatimChain = next.catch(() => null);
-  return next;
 }
 
 async function geocodeAddr(addr, defaultCity) {
@@ -1228,13 +1203,12 @@ async function geocodeAddr(addr, defaultCity) {
   const expanded = expandRuAddress(addr);
   const q        = city ? `${city}, ${expanded}` : expanded;
 
-  // Photon first: no rate limit, fast in parallel
-  const photonCoords = await tryPhoton(q);
-  if (photonCoords) { putInCache(addr, photonCoords); return photonCoords; }
-
-  // Fallback: queued Nominatim
-  const nomCoords = await tryNominatim(q);
-  if (nomCoords) { putInCache(addr, nomCoords); return nomCoords; }
+  // All geocoding goes through /api/geocode — our server has no CORS issues,
+  // sets the required User-Agent for Nominatim, and caches in db.json.
+  const url  = `${API_BASE}/geocode?q=${encodeURIComponent(q)}`;
+  const data = await fetchJsonWithTimeout(url, { headers: authHeaders() }, 15000);
+  const coords = data?.coords || null;
+  if (coords) { putInCache(addr, coords); return coords; }
 
   return null;
 }
@@ -1347,10 +1321,9 @@ async function renderMap() {
   };
   updateProgress();
 
-  // Fire each geocode with a small stagger so progress is visible.
-  // Photon runs in parallel; Nominatim fallback is internally serialised.
+  // Server handles rate limiting; small stagger just keeps the progress counter smooth.
   await Promise.all(toGeocode.map(({ addr, i }, idx) =>
-    new Promise(r => setTimeout(r, idx * 250))
+    new Promise(r => setTimeout(r, idx * 80))
       .then(() => geocodeAddr(addr, defaultCity))
       .then(coords => {
         done++;

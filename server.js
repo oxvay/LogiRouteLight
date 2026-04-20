@@ -108,13 +108,13 @@ async function ensureDb() {
         role: 'admin',
         createdAt: new Date().toISOString()
       }],
-      sessions: [], routes: [], routeItems: [], monthlyStats: []
+      sessions: [], routes: [], routeItems: [], monthlyStats: [], geocache: {}
     };
     await fs.writeFile(dbFile, JSON.stringify(seed, null, 2), 'utf8');
   }
 }
 
-async function readDb()       { await ensureDb(); return JSON.parse(await fs.readFile(dbFile, 'utf8')); }
+async function readDb()       { await ensureDb(); const db = JSON.parse(await fs.readFile(dbFile, 'utf8')); if (!db.geocache) db.geocache = {}; return db; }
 async function writeDb(db)    { await fs.writeFile(dbFile, JSON.stringify(db, null, 2), 'utf8'); }
 
 async function getCurrentUser(req) {
@@ -220,6 +220,72 @@ async function handleStats(req, res, user) {
   return reply(req, res, 200, { month, completedRoutesCount: stat.completedRoutesCount });
 }
 
+// ── Geocoding proxy ───────────────────────────────────────
+// Server-side geocoding: bypasses browser CORS/mobile-network blocks,
+// sets the User-Agent header Nominatim requires, and persists results
+// in db.json so points stay on the map across reloads and devices.
+
+const geoCacheKey = (q) => String(q || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+async function fetchJsonTimeout(url, headers = {}, ms = 8000) {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { headers, signal: ctrl.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
+// Nominatim ToS: 1 req/sec. Queue through a single promise chain.
+let nominatimQueue = Promise.resolve();
+function geocodeNominatim(q) {
+  const next = nominatimQueue.then(async () => {
+    await new Promise(r => setTimeout(r, 1100));
+    const url = 'https://nominatim.openstreetmap.org/search?' +
+      new URLSearchParams({ q, format: 'json', limit: '1', countrycodes: 'ru', 'accept-language': 'ru' });
+    const data = await fetchJsonTimeout(url, {
+      'User-Agent': 'LogiRouteLight/1.0 (contact: admin@logiroute.local)',
+      'Accept-Language': 'ru'
+    }, 8000);
+    if (!data?.[0]) return null;
+    return { lat: +data[0].lat, lon: +data[0].lon };
+  });
+  nominatimQueue = next.catch(() => null);
+  return next;
+}
+
+async function geocodePhoton(q) {
+  const url = 'https://photon.komoot.io/api/?' +
+    new URLSearchParams({ q, limit: '1', lang: 'ru' });
+  const data = await fetchJsonTimeout(url, {}, 6000);
+  const feat = data?.features?.find(f => f.properties?.countrycode === 'RU') ?? data?.features?.[0];
+  if (!feat) return null;
+  const [lon, lat] = feat.geometry.coordinates;
+  return { lat, lon };
+}
+
+async function handleGeocode(req, res) {
+  const url = new URL(req.url, 'http://localhost');
+  const q   = (url.searchParams.get('q') || '').trim();
+  if (!q) return reply(req, res, 400, { error: 'Missing q' });
+
+  const key = geoCacheKey(q);
+  const db  = await readDb();
+  if (db.geocache[key]) return reply(req, res, 200, { coords: db.geocache[key], cached: true });
+
+  let coords = await geocodePhoton(q);
+  if (!coords) coords = await geocodeNominatim(q);
+
+  if (coords) {
+    const db2 = await readDb();
+    db2.geocache[key] = coords;
+    await writeDb(db2);
+  }
+  return reply(req, res, 200, { coords: coords || null, cached: false });
+}
+
 // ── Admin ─────────────────────────────────────────────────
 
 const requireAdmin = (user) => user?.role === 'admin';
@@ -316,6 +382,7 @@ const server = http.createServer(async (req, res) => {
     const user = await getCurrentUser(req);
     if (!user) return reply(req, res, 401, { error: 'Unauthorized' });
 
+    if (req.method === 'GET' && path === '/api/geocode') return handleGeocode(req, res);
     if (path === '/api/routes')        return handleRoutes(req, res, user);
     if (path === '/api/stats/monthly') return handleStats(req, res, user);
     if (path === '/api/admin/users')   return handleAdminUsers(req, res, user);
