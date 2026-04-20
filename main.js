@@ -1106,7 +1106,7 @@ function escapeHtml(v) {
 
 // ── Map Tab ───────────────────────────────────────────────
 const LS_GEOCACHE = 'lrl_geocache_v7';
-let   mapInstance = null;
+let   mapInstance   = null;
 let   leafletLoaded = false;
 
 function getGeoCache() {
@@ -1114,6 +1114,15 @@ function getGeoCache() {
 }
 function saveGeoCache(c) {
   try { localStorage.setItem(LS_GEOCACHE, JSON.stringify(c)); } catch {}
+}
+function cacheKey(addr) {
+  return (addr || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+function putInCache(addr, coords) {
+  const c = getGeoCache();
+  c[cacheKey(addr)] = coords;
+  c[addr] = coords; // back-compat with v7 entries keyed by raw addr
+  saveGeoCache(c);
 }
 
 function loadLeaflet() {
@@ -1153,22 +1162,17 @@ function expandRuAddress(raw) {
     .replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim();
 }
 
-// Extract city/locality name from a raw address string
 function extractLocality(addr) {
-  // г. City  or  г City  (dot optional)
   let m = addr.match(/\bг\.?\s+([А-Яа-яЁё][А-Яа-яЁё\-]+)/i);
   if (m) return m[1].trim();
-  // город / пгт / пос / посёлок
   m = addr.match(/\b(?:город|пгт\.?|пос\.?|посёлок|поселок)\s+([А-Яа-яЁё][А-Яа-яЁё\-]+)/i);
   if (m) return m[1].trim();
-  // City at start (after optional postal code) before comma+street keyword
   const s = addr.replace(/^\d{6}[\s,]+/, '');
   m = s.match(/^([А-Яа-яЁё][А-Яа-яЁё\s\-]+?)\s*,\s*(?:ул\.|пр\.|пр-т|пер\.|б-р|бул\.|наб\.|ш\.|мкр\.)/i);
   if (m) return m[1].trim();
   return null;
 }
 
-// Return the most frequently mentioned city across all route groups
 function inferDefaultCity(groups) {
   const freq = {};
   for (const g of groups) {
@@ -1178,43 +1182,59 @@ function inferDefaultCity(groups) {
   return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
+async function fetchJsonWithTimeout(url, ms = 6000) {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
+async function tryPhoton(q) {
+  const url = 'https://photon.komoot.io/api/?' +
+    new URLSearchParams({ q, limit: '1', lang: 'ru' });
+  const data = await fetchJsonWithTimeout(url);
+  const feat = data?.features?.find(f => f.properties?.countrycode === 'RU') ?? data?.features?.[0];
+  if (!feat) return null;
+  const [lon, lat] = feat.geometry.coordinates;
+  return { lat, lon };
+}
+
+// Nominatim requires max 1 req/sec — serialize via a promise chain.
+let nominatimChain = Promise.resolve();
+function tryNominatim(q) {
+  const next = nominatimChain.then(async () => {
+    await new Promise(r => setTimeout(r, 1100));
+    const url = 'https://nominatim.openstreetmap.org/search?' +
+      new URLSearchParams({ q, format: 'json', limit: '1', countrycodes: 'ru', 'accept-language': 'ru' });
+    const data = await fetchJsonWithTimeout(url, 7000);
+    if (!data?.[0]) return null;
+    return { lat: +data[0].lat, lon: +data[0].lon };
+  });
+  nominatimChain = next.catch(() => null);
+  return next;
+}
+
 async function geocodeAddr(addr, defaultCity) {
   const cache = getGeoCache();
-  if (cache[addr]) return cache[addr];
+  const key   = cacheKey(addr);
+  if (cache[key]) return cache[key];
+  if (cache[addr]) { putInCache(addr, cache[addr]); return cache[addr]; }
 
   const city     = extractLocality(addr) || defaultCity;
   const expanded = expandRuAddress(addr);
   const q        = city ? `${city}, ${expanded}` : expanded;
 
-  // Primary: Nominatim — reliable when city context is present
-  try {
-    const p = new URLSearchParams({ q, format: 'json', limit: '3', countrycodes: 'ru' });
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?${p}`, {
-      headers: { 'User-Agent': 'LogiRouteLight/1.0' }
-    });
-    const data = await res.json();
-    if (data[0]) {
-      const v = { lat: +data[0].lat, lon: +data[0].lon };
-      saveGeoCache({ ...getGeoCache(), [addr]: v });
-      return v;
-    }
-  } catch {}
+  // Photon first: no rate limit, fast in parallel
+  const photonCoords = await tryPhoton(q);
+  if (photonCoords) { putInCache(addr, photonCoords); return photonCoords; }
 
-  // Fallback: Photon with raw address + Moscow bbox
-  try {
-    const raw = addr.replace(/^\d{6}[\s,]+/, '').trim();
-    const qp  = city ? `${city}, ${raw}` : raw;
-    const p   = new URLSearchParams({ q: qp, limit: '5', lang: 'ru', bbox: '35.0,54.0,42.0,57.5' });
-    const res  = await fetch(`https://photon.komoot.io/api/?${p}`);
-    const data = await res.json();
-    const feat = data.features?.find(f => f.properties?.countrycode === 'RU') ?? data.features?.[0];
-    if (feat) {
-      const [lon, lat] = feat.geometry.coordinates;
-      const v = { lat, lon };
-      saveGeoCache({ ...getGeoCache(), [addr]: v });
-      return v;
-    }
-  } catch {}
+  // Fallback: queued Nominatim
+  const nomCoords = await tryNominatim(q);
+  if (nomCoords) { putInCache(addr, nomCoords); return nomCoords; }
 
   return null;
 }
@@ -1276,46 +1296,74 @@ async function renderMap() {
   msgEl.classList.add('hidden');
   mapEl.classList.remove('hidden');
 
-  // attributionControl: false → no attribution bar, no flags
-  mapInstance = L.map(mapEl, { center: [55.7558, 37.6173], zoom: 10, attributionControl: false });
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+  mapInstance = L.map(mapEl, {
+    center: [55.7558, 37.6173],
+    zoom: 10,
+    attributionControl: false,
+    zoomControl: true,
+  });
+  // CartoDB Voyager — минималистичный стиль, подписи на местном языке (русские в РФ)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
+    subdomains: 'abcd',
   }).addTo(mapInstance);
 
-  const items = routeGroups
-    .map((g, i) => ({ addr: g[0].row.deliveryAddress, i }))
-    .filter(x => x.addr);
-  const bounds      = [];
+  const items       = routeGroups.map((g, i) => ({ addr: g[0].row.deliveryAddress, i })).filter(x => x.addr);
   const cache       = getGeoCache();
   const defaultCity = inferDefaultCity(routeGroups);
+  const bounds      = [];
 
-  // Phase 1: instantly place cached markers
+  const refit = () => {
+    if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
+    else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
+  };
+
+  // Phase 1: instant cached markers (persisted across refreshes via localStorage)
   for (const { addr, i } of items) {
-    const c = cache[addr];
+    const c = cache[cacheKey(addr)] ?? cache[addr];
     if (!c) continue;
     placeMapMarker(i, addr, c);
     bounds.push([c.lat, c.lon]);
   }
-  if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
-  else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
+  refit();
 
-  // Phase 2: geocode uncached addresses (1100 ms stagger — Nominatim rate limit)
-  const toGeocode = items.filter(x => !cache[x.addr]);
-  let   geocoded  = 0;
-  for (const { addr, i } of toGeocode) {
-    geocoded++;
-    msgEl.textContent = `Геокодирование ${geocoded}/${toGeocode.length}…`;
-    msgEl.classList.remove('hidden');
-    await new Promise(r => setTimeout(r, 1100));
-    const coords = await geocodeAddr(addr, defaultCity);
-    msgEl.classList.add('hidden');
-    if (!coords) continue;
-    placeMapMarker(i, addr, coords);
-    bounds.push([coords.lat, coords.lon]);
-    if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
-    else mapInstance.fitBounds(bounds, { padding: [40, 40] });
+  // Phase 2: geocode uncached addresses — parallel via Photon, Nominatim fallback queued
+  const toGeocode = items.filter(x => !(cache[cacheKey(x.addr)] ?? cache[x.addr]));
+  if (!toGeocode.length) {
+    if (!bounds.length) {
+      mapInstance.remove(); mapInstance = null;
+      mapEl.classList.add('hidden');
+      msgEl.textContent = 'Адреса не найдены.';
+      msgEl.classList.remove('hidden');
+    }
+    return;
   }
 
+  let done = 0;
+  const total = toGeocode.length;
+  const updateProgress = () => {
+    msgEl.textContent = done < total ? `Геокодирование ${done}/${total}…` : '';
+    if (done < total) msgEl.classList.remove('hidden'); else msgEl.classList.add('hidden');
+  };
+  updateProgress();
+
+  // Fire each geocode with a small stagger so progress is visible.
+  // Photon runs in parallel; Nominatim fallback is internally serialised.
+  await Promise.all(toGeocode.map(({ addr, i }, idx) =>
+    new Promise(r => setTimeout(r, idx * 250))
+      .then(() => geocodeAddr(addr, defaultCity))
+      .then(coords => {
+        done++;
+        updateProgress();
+        if (!coords) return;
+        placeMapMarker(i, addr, coords);
+        bounds.push([coords.lat, coords.lon]);
+        refit();
+      })
+      .catch(() => { done++; updateProgress(); })
+  ));
+
+  msgEl.classList.add('hidden');
   if (!bounds.length) {
     mapInstance.remove(); mapInstance = null;
     mapEl.classList.add('hidden');
