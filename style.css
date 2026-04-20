@@ -680,3 +680,114 @@ html, body {
 }
 .popup-menu-item:hover,
 .popup-menu-item:active { background: #f2f2f7; }
+
+/* ── Map Tab ─────────────────────────────────────────── */
+.map-container {
+  position: relative;
+  height: calc(100vh - 290px);
+  min-height: 320px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.map-load-msg {
+  text-align: center;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--orange);
+  background: var(--orange-light);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+}
+
+/* Numbered circle pin */
+.map-pin {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--orange);
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: transform 0.15s;
+}
+.map-pin:hover { transform: scale(1.15); }
+.map-pin--done { background: var(--green); }
+
+/* Leaflet popup overrides */
+.leaflet-popup-content-wrapper {
+  border-radius: 14px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18) !important;
+  padding: 0 !important;
+}
+.leaflet-popup-content { margin: 0 !important; width: auto !important; }
+.leaflet-popup-tip-container { display: none; }
+
+.map-popup {
+  min-width: 230px;
+  max-width: 280px;
+  padding: 14px 16px 12px;
+  font-family: var(--font);
+}
+.map-popup-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.map-popup-num {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--orange);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.map-popup-num--done { background: var(--green); }
+.map-popup-addr {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+}
+.map-popup-row {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.map-popup-status {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 8px 0 10px;
+}
+.map-popup-status.done { color: var(--green); }
+.map-popup-navi {
+  display: block;
+  text-align: center;
+  background: var(--orange);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 9px 14px;
+  text-decoration: none;
+  font-family: var(--font);
+  transition: background 0.15s;
+}
+.map-popup-navi:hover { background: #e05d00; }

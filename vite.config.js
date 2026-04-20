@@ -11,6 +11,7 @@ export default defineConfig({
       }
     }
   ],
+  build: { chunkSizeWarningLimit: 600 },
   server: {
     host: '0.0.0.0',
     proxy: {

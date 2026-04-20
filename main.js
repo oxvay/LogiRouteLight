@@ -1,4 +1,6 @@
 import * as XLSX from 'xlsx';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const API_BASE = '/api';
 const SESSION_TOKEN_KEY = 'logiroute_session_token';
@@ -38,9 +40,11 @@ const resultCount    = document.getElementById('resultCount');
 const allDeliveredBtn= document.getElementById('allDeliveredBtn');
 const yandexRouteBtn = document.getElementById('yandexRouteBtn');
 const tabRouteBtn    = document.getElementById('tabRouteBtn');
+const tabMapBtn      = document.getElementById('tabMapBtn');
 const tabHistoryBtn  = document.getElementById('tabHistoryBtn');
 const historyBadge   = document.getElementById('historyBadge');
 const routeTab       = document.getElementById('routeTab');
+const mapTab         = document.getElementById('mapTab');
 const historyTab     = document.getElementById('historyTab');
 const monthlyCount   = document.getElementById('monthlyCount');
 const dropzone       = document.getElementById('dropzone');
@@ -101,6 +105,7 @@ fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e
 allDeliveredBtn.addEventListener('click', markAllDelivered);
 yandexRouteBtn.addEventListener('click', e => { e.stopPropagation(); openRouteMenu(yandexRouteBtn); });
 tabRouteBtn.addEventListener('click',   () => switchTab('routeTab'));
+tabMapBtn.addEventListener('click',     () => switchTab('mapTab'));
 tabHistoryBtn.addEventListener('click', () => switchTab('historyTab'));
 routeDatePicker.addEventListener('change', () => onDatePickerChange());
 datePrevBtn.addEventListener('click', () => shiftPickerDate(-1));
@@ -1080,11 +1085,12 @@ function formatCalDate(ds) {
 
 // ── Tab Switching ─────────────────────────────────────────
 function switchTab(tabId) {
-  [routeTab, historyTab].forEach(t => t.classList.add('hidden'));
-  [tabRouteBtn, tabHistoryBtn].forEach(b => b.classList.remove('active'));
+  [routeTab, mapTab, historyTab].forEach(t => t.classList.add('hidden'));
+  [tabRouteBtn, tabMapBtn, tabHistoryBtn].forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).classList.remove('hidden');
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
   if (tabId === 'historyTab') renderCalendar();
+  if (tabId === 'mapTab') renderMap();
 }
 
 // ── Helpers ───────────────────────────────────────────────
@@ -1098,4 +1104,134 @@ function escapeHtml(v) {
   return String(v ?? '')
     .replaceAll('&','&amp;').replaceAll('<','&lt;')
     .replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+}
+
+// ── Map Tab ───────────────────────────────────────────────
+const LS_GEOCACHE = 'lrl_geocache_v1';
+let mapInstance  = null;
+let mapMarkers   = [];
+let mapBusy      = false;
+
+function getGeoCache() {
+  try { return JSON.parse(localStorage.getItem(LS_GEOCACHE) || '{}'); } catch { return {}; }
+}
+function saveGeoCache(c) {
+  try { localStorage.setItem(LS_GEOCACHE, JSON.stringify(c)); } catch {}
+}
+
+async function geocodeOne(addr) {
+  const cache = getGeoCache();
+  if (cache[addr]) return cache[addr];
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&limit=1&accept-language=ru`;
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': 'LogiRouteLight/1.0' } });
+    const d = await r.json();
+    if (d[0]) {
+      const v = { lat: +d[0].lat, lon: +d[0].lon };
+      saveGeoCache({ ...getGeoCache(), [addr]: v });
+      return v;
+    }
+  } catch {}
+  return null;
+}
+
+async function renderMap() {
+  if (mapBusy) return;
+  const container  = document.getElementById('mapContainer');
+  const loadMsg    = document.getElementById('mapLoadMsg');
+  const isIOS      = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+  if (!mapInstance) {
+    mapInstance = L.map(container).setView([55.75, 37.62], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(mapInstance);
+  } else {
+    mapMarkers.forEach(m => m.remove());
+    mapMarkers = [];
+  }
+  setTimeout(() => mapInstance.invalidateSize(), 120);
+
+  const groups = routeGroups;
+  if (!groups.length) return;
+
+  // Count how many need a network request (not yet cached)
+  const cache = getGeoCache();
+  const needNetwork = groups.filter(g => {
+    const a = g[0].row.deliveryAddress;
+    return a && !cache[a];
+  }).length;
+
+  if (needNetwork > 0) {
+    loadMsg.textContent = `Геокодирование адресов: 0 / ${needNetwork}`;
+    loadMsg.classList.remove('hidden');
+  }
+
+  mapBusy = true;
+  let networkDone = 0;
+  const bounds = [];
+
+  for (let i = 0; i < groups.length; i++) {
+    const group   = groups[i];
+    const addr    = group[0].row.deliveryAddress;
+    if (!addr) continue;
+
+    const wasCached = !!getGeoCache()[addr];
+    if (!wasCached && networkDone > 0) {
+      await new Promise(r => setTimeout(r, 1100)); // Nominatim: 1 req/sec
+    }
+
+    const coords = await geocodeOne(addr);
+    if (!wasCached) {
+      networkDone++;
+      loadMsg.textContent = `Геокодирование адресов: ${networkDone} / ${needNetwork}`;
+    }
+    if (!coords) continue;
+
+    bounds.push([coords.lat, coords.lon]);
+    const delivered = group.every(({ row }) => row._status === 'delivered');
+    const firstRow  = group[0].row;
+
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="map-pin${delivered ? ' map-pin--done' : ''}">${i + 1}</div>`,
+      iconSize:    [28, 28],
+      iconAnchor:  [14, 14],
+      popupAnchor: [0, -20],
+    });
+
+    const naviUrl  = `https://yandex.ru/navi/?text=${encodeURIComponent(addr)}`;
+    const popupEl  = document.createElement('div');
+    popupEl.className = 'map-popup';
+    popupEl.innerHTML = `
+      <div class="map-popup-header">
+        <span class="map-popup-num${delivered ? ' map-popup-num--done' : ''}">${i + 1}</span>
+        <span class="map-popup-addr">${escapeHtml(addr)}</span>
+      </div>
+      ${firstRow.buyer       ? `<div class="map-popup-row"><b>Покупатель:</b> ${escapeHtml(firstRow.buyer)}</div>` : ''}
+      ${firstRow.grossWeight ? `<div class="map-popup-row"><b>Вес:</b> ${escapeHtml(firstRow.grossWeight)} кг</div>` : ''}
+      ${firstRow.comment     ? `<div class="map-popup-row"><b>Комм.:</b> ${escapeHtml(firstRow.comment)}</div>` : ''}
+      <div class="map-popup-status${delivered ? ' done' : ''}">${delivered ? '✓ Доставлено' : '⏳ В пути'}</div>
+    `;
+    const naviBtn = document.createElement('a');
+    naviBtn.className   = 'map-popup-navi';
+    naviBtn.textContent = '🧭 Открыть в Навигаторе';
+    naviBtn.href        = naviUrl;
+    if (!isIOS) { naviBtn.target = '_blank'; naviBtn.rel = 'noopener noreferrer'; }
+    popupEl.appendChild(naviBtn);
+
+    const marker = L.marker([coords.lat, coords.lon], { icon }).addTo(mapInstance);
+    marker.bindPopup(popupEl, { maxWidth: 290 });
+    mapMarkers.push(marker);
+  }
+
+  loadMsg.classList.add('hidden');
+  mapBusy = false;
+
+  if (bounds.length === 1) {
+    mapInstance.setView(bounds[0], 15);
+  } else if (bounds.length > 1) {
+    mapInstance.fitBounds(bounds, { padding: [40, 40] });
+  }
 }

@@ -93,6 +93,7 @@
         <!-- Tab Bar -->
         <div class="tab-bar">
           <button class="tab-btn active" id="tabRouteBtn" data-tab="routeTab" type="button">Маршрут</button>
+          <button class="tab-btn" id="tabMapBtn" data-tab="mapTab" type="button">🗺 Карта</button>
           <button class="tab-btn" id="tabHistoryBtn" data-tab="historyTab" type="button">
             История <span class="tab-badge hidden" id="historyBadge">0</span>
           </button>
@@ -117,6 +118,12 @@
           <div id="routeList" class="route-list">
             <div class="empty-state">Укажите номера и загрузите Excel-файл</div>
           </div>
+        </div>
+
+        <!-- ── Map Tab ── -->
+        <div id="mapTab" class="hidden">
+          <div id="mapLoadMsg" class="map-load-msg hidden">Загрузка…</div>
+          <div id="mapContainer" class="map-container"></div>
         </div>
 
         <!-- ── History Tab ── -->
