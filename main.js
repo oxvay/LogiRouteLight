@@ -1,6 +1,4 @@
 import * as XLSX from 'xlsx';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
 const API_BASE = '/api';
 const SESSION_TOKEN_KEY = 'logiroute_session_token';
@@ -1107,131 +1105,20 @@ function escapeHtml(v) {
 }
 
 // ── Map Tab ───────────────────────────────────────────────
-const LS_GEOCACHE = 'lrl_geocache_v1';
-let mapInstance  = null;
-let mapMarkers   = [];
-let mapBusy      = false;
+function renderMap() {
+  const frame = document.getElementById('mapFrame');
+  const empty = document.getElementById('mapEmpty');
+  const addrs = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
 
-function getGeoCache() {
-  try { return JSON.parse(localStorage.getItem(LS_GEOCACHE) || '{}'); } catch { return {}; }
-}
-function saveGeoCache(c) {
-  try { localStorage.setItem(LS_GEOCACHE, JSON.stringify(c)); } catch {}
-}
-
-async function geocodeOne(addr) {
-  const cache = getGeoCache();
-  if (cache[addr]) return cache[addr];
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&limit=1&accept-language=ru`;
-  try {
-    const r = await fetch(url, { headers: { 'User-Agent': 'LogiRouteLight/1.0' } });
-    const d = await r.json();
-    if (d[0]) {
-      const v = { lat: +d[0].lat, lon: +d[0].lon };
-      saveGeoCache({ ...getGeoCache(), [addr]: v });
-      return v;
-    }
-  } catch {}
-  return null;
-}
-
-async function renderMap() {
-  if (mapBusy) return;
-  const container  = document.getElementById('mapContainer');
-  const loadMsg    = document.getElementById('mapLoadMsg');
-  const isIOS      = /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-  if (!mapInstance) {
-    mapInstance = L.map(container).setView([55.75, 37.62], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-    }).addTo(mapInstance);
-  } else {
-    mapMarkers.forEach(m => m.remove());
-    mapMarkers = [];
-  }
-  setTimeout(() => mapInstance.invalidateSize(), 120);
-
-  const groups = routeGroups;
-  if (!groups.length) return;
-
-  // Count how many need a network request (not yet cached)
-  const cache = getGeoCache();
-  const needNetwork = groups.filter(g => {
-    const a = g[0].row.deliveryAddress;
-    return a && !cache[a];
-  }).length;
-
-  if (needNetwork > 0) {
-    loadMsg.textContent = `Геокодирование адресов: 0 / ${needNetwork}`;
-    loadMsg.classList.remove('hidden');
+  if (!addrs.length) {
+    frame.classList.add('hidden');
+    empty.classList.remove('hidden');
+    frame.src = '';
+    return;
   }
 
-  mapBusy = true;
-  let networkDone = 0;
-  const bounds = [];
-
-  for (let i = 0; i < groups.length; i++) {
-    const group   = groups[i];
-    const addr    = group[0].row.deliveryAddress;
-    if (!addr) continue;
-
-    const wasCached = !!getGeoCache()[addr];
-    if (!wasCached && networkDone > 0) {
-      await new Promise(r => setTimeout(r, 1100)); // Nominatim: 1 req/sec
-    }
-
-    const coords = await geocodeOne(addr);
-    if (!wasCached) {
-      networkDone++;
-      loadMsg.textContent = `Геокодирование адресов: ${networkDone} / ${needNetwork}`;
-    }
-    if (!coords) continue;
-
-    bounds.push([coords.lat, coords.lon]);
-    const delivered = group.every(({ row }) => row._status === 'delivered');
-    const firstRow  = group[0].row;
-
-    const icon = L.divIcon({
-      className: '',
-      html: `<div class="map-pin${delivered ? ' map-pin--done' : ''}">${i + 1}</div>`,
-      iconSize:    [28, 28],
-      iconAnchor:  [14, 14],
-      popupAnchor: [0, -20],
-    });
-
-    const naviUrl  = `https://yandex.ru/navi/?text=${encodeURIComponent(addr)}`;
-    const popupEl  = document.createElement('div');
-    popupEl.className = 'map-popup';
-    popupEl.innerHTML = `
-      <div class="map-popup-header">
-        <span class="map-popup-num${delivered ? ' map-popup-num--done' : ''}">${i + 1}</span>
-        <span class="map-popup-addr">${escapeHtml(addr)}</span>
-      </div>
-      ${firstRow.buyer       ? `<div class="map-popup-row"><b>Покупатель:</b> ${escapeHtml(firstRow.buyer)}</div>` : ''}
-      ${firstRow.grossWeight ? `<div class="map-popup-row"><b>Вес:</b> ${escapeHtml(firstRow.grossWeight)} кг</div>` : ''}
-      ${firstRow.comment     ? `<div class="map-popup-row"><b>Комм.:</b> ${escapeHtml(firstRow.comment)}</div>` : ''}
-      <div class="map-popup-status${delivered ? ' done' : ''}">${delivered ? '✓ Доставлено' : '⏳ В пути'}</div>
-    `;
-    const naviBtn = document.createElement('a');
-    naviBtn.className   = 'map-popup-navi';
-    naviBtn.textContent = '🧭 Открыть в Навигаторе';
-    naviBtn.href        = naviUrl;
-    if (!isIOS) { naviBtn.target = '_blank'; naviBtn.rel = 'noopener noreferrer'; }
-    popupEl.appendChild(naviBtn);
-
-    const marker = L.marker([coords.lat, coords.lon], { icon }).addTo(mapInstance);
-    marker.bindPopup(popupEl, { maxWidth: 290 });
-    mapMarkers.push(marker);
-  }
-
-  loadMsg.classList.add('hidden');
-  mapBusy = false;
-
-  if (bounds.length === 1) {
-    mapInstance.setView(bounds[0], 15);
-  } else if (bounds.length > 1) {
-    mapInstance.fitBounds(bounds, { padding: [40, 40] });
-  }
+  empty.classList.add('hidden');
+  frame.classList.remove('hidden');
+  const rtext = addrs.map(encodeURIComponent).join('~');
+  frame.src = `https://yandex.ru/maps/?mode=routes&rtext=${rtext}&rtt=auto&output=embed`;
 }
