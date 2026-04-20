@@ -1105,8 +1105,8 @@ function escapeHtml(v) {
 }
 
 // ── Map Tab ───────────────────────────────────────────────
-const LS_GEOCACHE   = 'lrl_geocache_v5';
-let   mapInstance   = null;
+const LS_GEOCACHE = 'lrl_geocache_v6';
+let   mapInstance = null;
 let   leafletLoaded = false;
 
 function getGeoCache() {
@@ -1136,6 +1136,7 @@ function loadLeaflet() {
 function expandRuAddress(raw) {
   return raw
     .replace(/^\d{6}[\s,]+/, '')
+    .replace(/\bг\.\s*/gi,    '')
     .replace(/\bул\.\s*/gi,   'улица ')
     .replace(/\bпр-т\b/gi,    'проспект')
     .replace(/\bпр\.\s*/gi,   'проспект ')
@@ -1153,13 +1154,36 @@ function expandRuAddress(raw) {
     .replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim();
 }
 
-async function geocodeAddr(addr, bbox) {
+// Extract city/locality name from a raw address string
+function extractLocality(addr) {
+  const m = addr.match(/\b(?:г\.|город|пгт\.?|пос\.?|посёлок)\s+([А-Яа-яЁё][А-Яа-яЁё\-]+)/i);
+  return m ? m[1].trim() : null;
+}
+
+// Return the most frequently mentioned city across all route groups
+function inferDefaultCity(groups) {
+  const freq = {};
+  for (const g of groups) {
+    const city = extractLocality(g[0].row.deliveryAddress || '');
+    if (city) freq[city] = (freq[city] || 0) + 1;
+  }
+  return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+// Moscow + MO bounding box for Photon
+const MO_BBOX = '35.0,54.0,42.0,57.5';
+
+async function geocodeAddr(addr, defaultCity) {
   const cache = getGeoCache();
   if (cache[addr]) return cache[addr];
-  const q = expandRuAddress(addr);
+
+  const city    = extractLocality(addr) || defaultCity;
+  const street  = expandRuAddress(addr);
+  // Always include city in query so Photon doesn't search all of Russia
+  const q = city ? `${city}, ${street}` : `Россия, ${street}`;
+
   try {
-    const p = new URLSearchParams({ q, limit: '5', lang: 'ru' });
-    if (bbox) p.set('bbox', bbox);
+    const p = new URLSearchParams({ q, limit: '5', lang: 'ru', bbox: MO_BBOX });
     const res  = await fetch(`https://photon.komoot.io/api/?${p}`);
     const data = await res.json();
     const feat = data.features?.find(f => f.properties?.countrycode === 'RU')
@@ -1231,21 +1255,18 @@ async function renderMap() {
   msgEl.classList.add('hidden');
   mapEl.classList.remove('hidden');
 
-  // Default center: Moscow
-  mapInstance = L.map(mapEl, { center: [55.7558, 37.6173], zoom: 10 });
+  // attributionControl: false → no attribution bar, no flags
+  mapInstance = L.map(mapEl, { center: [55.7558, 37.6173], zoom: 10, attributionControl: false });
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-    attribution: '© <a href="https://www.esri.com">Esri</a>',
     maxZoom: 19,
   }).addTo(mapInstance);
 
-  // Build indexed address list (preserving group index)
-  const items  = routeGroups
+  const items = routeGroups
     .map((g, i) => ({ addr: g[0].row.deliveryAddress, i }))
     .filter(x => x.addr);
-  const bounds = [];
-  // Moscow + MO bounding box — constrains Photon to the right region from query 1
-  let   bbox   = '35.0,54.0,42.0,57.5';
-  const cache  = getGeoCache();
+  const bounds      = [];
+  const cache       = getGeoCache();
+  const defaultCity = inferDefaultCity(routeGroups);
 
   // Phase 1: instantly place cached markers
   for (const { addr, i } of items) {
@@ -1257,11 +1278,11 @@ async function renderMap() {
   if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
   else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
 
-  // Phase 2: geocode uncached addresses via Photon (200 ms stagger)
+  // Phase 2: geocode uncached addresses with city context (200 ms stagger)
   for (const { addr, i } of items) {
     if (cache[addr]) continue;
     await new Promise(r => setTimeout(r, 200));
-    const coords = await geocodeAddr(addr, bbox);
+    const coords = await geocodeAddr(addr, defaultCity);
     if (!coords) continue;
     placeMapMarker(i, addr, coords);
     bounds.push([coords.lat, coords.lon]);
@@ -1272,7 +1293,7 @@ async function renderMap() {
   if (!bounds.length) {
     mapInstance.remove(); mapInstance = null;
     mapEl.classList.add('hidden');
-    msgEl.textContent = 'Адреса не найдены.';
+    msgEl.textContent = 'Адреса не найдены. Проверьте формат адресов в Excel.';
     msgEl.classList.remove('hidden');
   }
 }
