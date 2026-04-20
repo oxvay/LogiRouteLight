@@ -1105,7 +1105,7 @@ function escapeHtml(v) {
 }
 
 // ── Map Tab ───────────────────────────────────────────────
-const LS_GEOCACHE = 'lrl_geocache_v6';
+const LS_GEOCACHE = 'lrl_geocache_v7';
 let   mapInstance = null;
 let   leafletLoaded = false;
 
@@ -1136,7 +1136,6 @@ function loadLeaflet() {
 function expandRuAddress(raw) {
   return raw
     .replace(/^\d{6}[\s,]+/, '')
-    .replace(/\bг\.\s*/gi,    '')
     .replace(/\bул\.\s*/gi,   'улица ')
     .replace(/\bпр-т\b/gi,    'проспект')
     .replace(/\bпр\.\s*/gi,   'проспект ')
@@ -1156,8 +1155,17 @@ function expandRuAddress(raw) {
 
 // Extract city/locality name from a raw address string
 function extractLocality(addr) {
-  const m = addr.match(/\b(?:г\.|город|пгт\.?|пос\.?|посёлок)\s+([А-Яа-яЁё][А-Яа-яЁё\-]+)/i);
-  return m ? m[1].trim() : null;
+  // г. City  or  г City  (dot optional)
+  let m = addr.match(/\bг\.?\s+([А-Яа-яЁё][А-Яа-яЁё\-]+)/i);
+  if (m) return m[1].trim();
+  // город / пгт / пос / посёлок
+  m = addr.match(/\b(?:город|пгт\.?|пос\.?|посёлок|поселок)\s+([А-Яа-яЁё][А-Яа-яЁё\-]+)/i);
+  if (m) return m[1].trim();
+  // City at start (after optional postal code) before comma+street keyword
+  const s = addr.replace(/^\d{6}[\s,]+/, '');
+  m = s.match(/^([А-Яа-яЁё][А-Яа-яЁё\s\-]+?)\s*,\s*(?:ул\.|пр\.|пр-т|пер\.|б-р|бул\.|наб\.|ш\.|мкр\.)/i);
+  if (m) return m[1].trim();
+  return null;
 }
 
 // Return the most frequently mentioned city across all route groups
@@ -1170,24 +1178,36 @@ function inferDefaultCity(groups) {
   return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
-// Moscow + MO bounding box for Photon
-const MO_BBOX = '35.0,54.0,42.0,57.5';
-
 async function geocodeAddr(addr, defaultCity) {
   const cache = getGeoCache();
   if (cache[addr]) return cache[addr];
 
-  const city    = extractLocality(addr) || defaultCity;
-  const street  = expandRuAddress(addr);
-  // Always include city in query so Photon doesn't search all of Russia
-  const q = city ? `${city}, ${street}` : `Россия, ${street}`;
+  const city     = extractLocality(addr) || defaultCity;
+  const expanded = expandRuAddress(addr);
+  const q        = city ? `${city}, ${expanded}` : expanded;
 
+  // Primary: Nominatim — reliable when city context is present
   try {
-    const p = new URLSearchParams({ q, limit: '5', lang: 'ru', bbox: MO_BBOX });
+    const p = new URLSearchParams({ q, format: 'json', limit: '3', countrycodes: 'ru' });
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${p}`, {
+      headers: { 'User-Agent': 'LogiRouteLight/1.0' }
+    });
+    const data = await res.json();
+    if (data[0]) {
+      const v = { lat: +data[0].lat, lon: +data[0].lon };
+      saveGeoCache({ ...getGeoCache(), [addr]: v });
+      return v;
+    }
+  } catch {}
+
+  // Fallback: Photon with raw address + Moscow bbox
+  try {
+    const raw = addr.replace(/^\d{6}[\s,]+/, '').trim();
+    const qp  = city ? `${city}, ${raw}` : raw;
+    const p   = new URLSearchParams({ q: qp, limit: '5', lang: 'ru', bbox: '35.0,54.0,42.0,57.5' });
     const res  = await fetch(`https://photon.komoot.io/api/?${p}`);
     const data = await res.json();
-    const feat = data.features?.find(f => f.properties?.countrycode === 'RU')
-               ?? data.features?.[0];
+    const feat = data.features?.find(f => f.properties?.countrycode === 'RU') ?? data.features?.[0];
     if (feat) {
       const [lon, lat] = feat.geometry.coordinates;
       const v = { lat, lon };
@@ -1195,6 +1215,7 @@ async function geocodeAddr(addr, defaultCity) {
       return v;
     }
   } catch {}
+
   return null;
 }
 
@@ -1278,11 +1299,16 @@ async function renderMap() {
   if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
   else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
 
-  // Phase 2: geocode uncached addresses with city context (200 ms stagger)
-  for (const { addr, i } of items) {
-    if (cache[addr]) continue;
-    await new Promise(r => setTimeout(r, 200));
+  // Phase 2: geocode uncached addresses (1100 ms stagger — Nominatim rate limit)
+  const toGeocode = items.filter(x => !cache[x.addr]);
+  let   geocoded  = 0;
+  for (const { addr, i } of toGeocode) {
+    geocoded++;
+    msgEl.textContent = `Геокодирование ${geocoded}/${toGeocode.length}…`;
+    msgEl.classList.remove('hidden');
+    await new Promise(r => setTimeout(r, 1100));
     const coords = await geocodeAddr(addr, defaultCity);
+    msgEl.classList.add('hidden');
     if (!coords) continue;
     placeMapMarker(i, addr, coords);
     bounds.push([coords.lat, coords.lon]);
