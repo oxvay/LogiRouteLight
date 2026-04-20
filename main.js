@@ -1206,7 +1206,7 @@ async function geocodeAddr(addr, defaultCity) {
   // All geocoding goes through /api/geocode — our server has no CORS issues,
   // sets the required User-Agent for Nominatim, and caches in db.json.
   const url  = `${API_BASE}/geocode?q=${encodeURIComponent(q)}`;
-  const data = await fetchJsonWithTimeout(url, { headers: authHeaders() }, 15000);
+  const data = await fetchJsonWithTimeout(url, {}, 15000);
   const coords = data?.coords || null;
   if (coords) { putInCache(addr, coords); return coords; }
 

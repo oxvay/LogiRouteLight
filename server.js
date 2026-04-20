@@ -378,11 +378,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && path === '/api/login')  return handleLogin(req, res);
     if (req.method === 'POST' && path === '/api/logout') return handleLogout(req, res);
     if (path === '/api/me') return handleMe(req, res);
+    if (req.method === 'GET' && path === '/api/geocode') return handleGeocode(req, res);
 
     const user = await getCurrentUser(req);
     if (!user) return reply(req, res, 401, { error: 'Unauthorized' });
-
-    if (req.method === 'GET' && path === '/api/geocode') return handleGeocode(req, res);
     if (path === '/api/routes')        return handleRoutes(req, res, user);
     if (path === '/api/stats/monthly') return handleStats(req, res, user);
     if (path === '/api/admin/users')   return handleAdminUsers(req, res, user);
