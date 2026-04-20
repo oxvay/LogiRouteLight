@@ -1088,11 +1088,7 @@ function switchTab(tabId) {
   document.getElementById(tabId).classList.remove('hidden');
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
   if (tabId === 'historyTab') renderCalendar();
-  if (tabId === 'mapTab') {
-    const saved = localStorage.getItem(LS_MAP_CITY);
-    if (mapCityInput && saved !== null) mapCityInput.value = saved;
-    renderMap();
-  }
+  if (tabId === 'mapTab') renderMap();
 }
 
 // ── Helpers ───────────────────────────────────────────────
@@ -1109,19 +1105,9 @@ function escapeHtml(v) {
 }
 
 // ── Map Tab ───────────────────────────────────────────────
-const LS_MAP_CITY  = 'lrl_map_city';
-const LS_GEOCACHE  = 'lrl_geocache_v3';
-let   mapInstance  = null;
+const LS_GEOCACHE   = 'lrl_geocache_v4';
+let   mapInstance   = null;
 let   leafletLoaded = false;
-
-const mapCityInput  = document.getElementById('mapCityInput');
-const showMapBtn    = document.getElementById('showMapBtn');
-const mapCityStatus = document.getElementById('mapCityStatus');
-
-showMapBtn.addEventListener('click', () => {
-  localStorage.setItem(LS_MAP_CITY, mapCityInput.value.trim());
-  renderMap();
-});
 
 function getGeoCache() {
   try { return JSON.parse(localStorage.getItem(LS_GEOCACHE) || '{}'); } catch { return {}; }
@@ -1149,41 +1135,39 @@ function loadLeaflet() {
 
 function expandRuAddress(raw) {
   return raw
-    .replace(/^\d{6}[\s,]+/, '')           // strip postal code
-    .replace(/\bг\.\s*/gi, '')             // strip city prefix "г."
-    .replace(/\bул\.\s*/gi, 'улица ')
-    .replace(/\bпр-т\b/gi, 'проспект')
-    .replace(/\bпр\.\s*/gi, 'проспект ')
-    .replace(/\bпер\.\s*/gi, 'переулок ')
-    .replace(/\bб-р\b/gi, 'бульвар')
-    .replace(/\bбул\.\s*/gi, 'бульвар ')
-    .replace(/\bпл\.\s*/gi, 'площадь ')
-    .replace(/\bш\.\s*/gi, 'шоссе ')
-    .replace(/\bнаб\.\s*/gi, 'набережная ')
-    .replace(/\bмкр\.\s*/gi, 'микрорайон ')
-    .replace(/\bд\.\s*(?=\d)/gi, '')       // "д. 5" → "5"
+    .replace(/^\d{6}[\s,]+/, '')
+    .replace(/\bул\.\s*/gi,   'улица ')
+    .replace(/\bпр-т\b/gi,    'проспект')
+    .replace(/\bпр\.\s*/gi,   'проспект ')
+    .replace(/\bпер\.\s*/gi,  'переулок ')
+    .replace(/\bб-р\b/gi,     'бульвар')
+    .replace(/\bбул\.\s*/gi,  'бульвар ')
+    .replace(/\bпл\.\s*/gi,   'площадь ')
+    .replace(/\bш\.\s*/gi,    'шоссе ')
+    .replace(/\bнаб\.\s*/gi,  'набережная ')
+    .replace(/\bмкр\.\s*/gi,  'микрорайон ')
+    .replace(/\bр-н\b/gi,     'район')
+    .replace(/\bд\.\s*(?=\d)/gi, '')
     .replace(/\bкорп?\.\s*(?=\d)/gi, ' корпус ')
-    .replace(/\bстр\.\s*(?=\d)/gi, ' строение ')
-    .replace(/,\s*,/g, ',')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/\bстр\.\s*(?=\d)/gi,   ' строение ')
+    .replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim();
 }
 
-async function geocodeAddr(addr, city) {
-  const cacheKey = city ? `${city}|${addr}` : addr;
+async function geocodeAddr(addr, bbox) {
   const cache = getGeoCache();
-  if (cache[cacheKey]) return cache[cacheKey];
-  const expanded = expandRuAddress(addr);
-  const query    = city ? `${city}, ${expanded}` : expanded;
+  if (cache[addr]) return cache[addr];
+  const q = expandRuAddress(addr);
   try {
-    const params = new URLSearchParams({ q: query, format: 'json', limit: '1', countrycodes: 'ru' });
-    const res  = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-      headers: { 'Accept-Language': 'ru,en' }
-    });
+    const p = new URLSearchParams({ q, limit: '5', lang: 'ru' });
+    if (bbox) p.set('bbox', bbox);
+    const res  = await fetch(`https://photon.komoot.io/api/?${p}`);
     const data = await res.json();
-    if (data[0]) {
-      const v = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-      saveGeoCache({ ...getGeoCache(), [cacheKey]: v });
+    const feat = data.features?.find(f => f.properties?.countrycode === 'RU')
+               ?? data.features?.[0];
+    if (feat) {
+      const [lon, lat] = feat.geometry.coordinates;
+      const v = { lat, lon };
+      saveGeoCache({ ...getGeoCache(), [addr]: v });
       return v;
     }
   } catch {}
@@ -1195,19 +1179,39 @@ function makeLeafletIcon(num, done) {
   return L.divIcon({
     html: `<div style="width:30px;height:30px;border-radius:50%;background:${fill};border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25)">${num}</div>`,
     className: '',
-    iconSize:   [30, 30],
-    iconAnchor: [15, 15],
-    popupAnchor:[0, -17],
+    iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -17],
   });
 }
 
+function placeMapMarker(i, addr, coords) {
+  const group     = routeGroups[i];
+  const delivered = group.every(({ row }) => row._status === 'delivered');
+  const firstRow  = group[0].row;
+  const phones    = collectGroupPhones(group);
+  const isIOS     = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const naviUrl   = `https://yandex.ru/navi/?text=${encodeURIComponent(addr)}`;
+  const naviTarget = isIOS ? '' : ' target="_blank" rel="noopener noreferrer"';
+  const callHtml  = phones[0]
+    ? `<a href="tel:${phones[0].tel}" style="background:#34C759;color:#fff;padding:9px 13px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;flex-shrink:0">📞</a>`
+    : '';
+  const popup =
+    `<div style="font-family:system-ui,sans-serif;max-width:240px">` +
+    `<b style="font-size:14px">#${i + 1} ${escapeHtml(addr)}</b>` +
+    (firstRow.buyer       ? `<div style="font-size:12px;margin-top:6px">👤 ${escapeHtml(firstRow.buyer)}</div>` : '') +
+    (firstRow.grossWeight ? `<div style="font-size:12px;margin-top:4px">⚖️ ${escapeHtml(firstRow.grossWeight)} кг</div>` : '') +
+    (firstRow.comment     ? `<div style="font-size:12px;margin-top:4px">💬 ${escapeHtml(firstRow.comment)}</div>` : '') +
+    (delivered ? `<div style="color:#34C759;font-weight:700;font-size:12px;margin-top:6px">✓ Доставлено</div>` : '') +
+    `<div style="display:flex;gap:8px;margin-top:10px">` +
+    `<a href="${naviUrl}"${naviTarget} style="flex:1;background:#FF6B00;color:#fff;text-align:center;padding:9px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px">🧭 Навигатор</a>` +
+    callHtml + `</div></div>`;
+  L.marker([coords.lat, coords.lon], { icon: makeLeafletIcon(i + 1, delivered) })
+    .bindPopup(popup)
+    .addTo(mapInstance);
+}
+
 async function renderMap() {
-  const city  = localStorage.getItem(LS_MAP_CITY) ?? '';
   const msgEl = document.getElementById('mapMsg');
   const mapEl = document.getElementById('mapContainer');
-
-  // Pre-fill input with saved city
-  if (mapCityInput && mapCityInput.value === '' && city) mapCityInput.value = city;
 
   if (!routeGroups.length) {
     msgEl.textContent = 'Загрузите маршрут, чтобы увидеть карту';
@@ -1221,87 +1225,56 @@ async function renderMap() {
   mapEl.classList.add('hidden');
 
   try { await loadLeaflet(); }
-  catch {
-    msgEl.textContent = 'Ошибка загрузки. Проверьте интернет.';
-    return;
-  }
+  catch { msgEl.textContent = 'Ошибка загрузки. Проверьте интернет.'; return; }
 
   if (mapInstance) { mapInstance.remove(); mapInstance = null; }
   msgEl.classList.add('hidden');
   mapEl.classList.remove('hidden');
 
-  mapInstance = L.map(mapEl, { center: [55.75, 37.62], zoom: 10 });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  // Default center: Moscow
+  mapInstance = L.map(mapEl, { center: [55.7558, 37.6173], zoom: 10 });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd',
     maxZoom: 19,
   }).addTo(mapInstance);
 
-  const addrs    = routeGroups.map(g => g[0].row.deliveryAddress).filter(Boolean);
-  const bounds   = [];
-  let   lastFetch = 0;
-  const isIOS    = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  // Build indexed address list (preserving group index)
+  const items  = routeGroups
+    .map((g, i) => ({ addr: g[0].row.deliveryAddress, i }))
+    .filter(x => x.addr);
+  const bounds = [];
+  let   bbox   = null;
+  const cache  = getGeoCache();
 
-  for (let i = 0; i < addrs.length; i++) {
-    const addr     = addrs[i];
-    const cacheKey = city ? `${city}|${addr}` : addr;
-    const cached   = getGeoCache()[cacheKey];
-
-    let coords;
-    if (cached) {
-      coords = cached;
-    } else {
-      // Nominatim rate limit: ≤1 req/sec
-      const wait = 1050 - (Date.now() - lastFetch);
-      if (lastFetch && wait > 0) await new Promise(r => setTimeout(r, wait));
-      mapCityStatus.textContent = `Поиск: ${i + 1} / ${addrs.length}…`;
-      lastFetch = Date.now();
-      coords = await geocodeAddr(addr, city);
-    }
-
-    if (!coords) continue;
-
-    const group      = routeGroups[i];
-    const delivered  = group.every(({ row }) => row._status === 'delivered');
-    const firstRow   = group[0].row;
-    const phones     = collectGroupPhones(group);
-    const naviUrl    = `https://yandex.ru/navi/?text=${encodeURIComponent(addr)}`;
-    const naviTarget = isIOS ? '' : ' target="_blank" rel="noopener noreferrer"';
-    const callHtml   = phones[0]
-      ? `<a href="tel:${phones[0].tel}" style="background:#34C759;color:#fff;padding:9px 13px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;flex-shrink:0">📞</a>`
-      : '';
-
-    const popup =
-      `<div style="font-family:system-ui,sans-serif;max-width:240px">` +
-      `<b style="font-size:14px">#${i + 1} ${escapeHtml(addr)}</b>` +
-      (firstRow.buyer       ? `<div style="font-size:12px;margin-top:6px">👤 ${escapeHtml(firstRow.buyer)}</div>` : '') +
-      (firstRow.grossWeight ? `<div style="font-size:12px;margin-top:4px">⚖️ ${escapeHtml(firstRow.grossWeight)} кг</div>` : '') +
-      (firstRow.comment     ? `<div style="font-size:12px;margin-top:4px">💬 ${escapeHtml(firstRow.comment)}</div>` : '') +
-      (delivered ? `<div style="color:#34C759;font-weight:700;font-size:12px;margin-top:6px">✓ Доставлено</div>` : '') +
-      `<div style="display:flex;gap:8px;margin-top:10px">` +
-      `<a href="${naviUrl}"${naviTarget} style="flex:1;background:#FF6B00;color:#fff;text-align:center;padding:9px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px">🧭 Навигатор</a>` +
-      callHtml +
-      `</div>` +
-      `</div>`;
-
-    L.marker([coords.lat, coords.lon], { icon: makeLeafletIcon(i + 1, delivered) })
-      .bindPopup(popup)
-      .addTo(mapInstance);
-    bounds.push([coords.lat, coords.lon]);
-
-    if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
+  // Phase 1: instantly place cached markers
+  for (const { addr, i } of items) {
+    const c = cache[addr];
+    if (!c) continue;
+    placeMapMarker(i, addr, c);
+    bounds.push([c.lat, c.lon]);
+    if (!bbox) bbox = `${c.lon - 0.9},${c.lat - 0.6},${c.lon + 0.9},${c.lat + 0.6}`;
   }
+  if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
+  else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
 
-  mapCityStatus.textContent = '';
+  // Phase 2: geocode uncached addresses via Photon (200 ms stagger)
+  for (const { addr, i } of items) {
+    if (cache[addr]) continue;
+    await new Promise(r => setTimeout(r, 200));
+    const coords = await geocodeAddr(addr, bbox);
+    if (!coords) continue;
+    if (!bbox) bbox = `${coords.lon - 0.9},${coords.lat - 0.6},${coords.lon + 0.9},${coords.lat + 0.6}`;
+    placeMapMarker(i, addr, coords);
+    bounds.push([coords.lat, coords.lon]);
+    if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
+    else mapInstance.fitBounds(bounds, { padding: [40, 40] });
+  }
 
   if (!bounds.length) {
     mapInstance.remove(); mapInstance = null;
     mapEl.classList.add('hidden');
-    msgEl.textContent = city
-      ? 'Адреса не найдены. Проверьте правильность города.'
-      : 'Адреса не найдены. Введите город и нажмите «Показать».';
+    msgEl.textContent = 'Адреса не найдены.';
     msgEl.classList.remove('hidden');
-    return;
   }
-
-  if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
 }
