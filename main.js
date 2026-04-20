@@ -1105,7 +1105,7 @@ function escapeHtml(v) {
 }
 
 // ── Map Tab ───────────────────────────────────────────────
-const LS_GEOCACHE   = 'lrl_geocache_v4';
+const LS_GEOCACHE   = 'lrl_geocache_v5';
 let   mapInstance   = null;
 let   leafletLoaded = false;
 
@@ -1233,9 +1233,8 @@ async function renderMap() {
 
   // Default center: Moscow
   mapInstance = L.map(mapEl, { center: [55.7558, 37.6173], zoom: 10 });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: 'abcd',
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© <a href="https://www.esri.com">Esri</a>',
     maxZoom: 19,
   }).addTo(mapInstance);
 
@@ -1244,7 +1243,8 @@ async function renderMap() {
     .map((g, i) => ({ addr: g[0].row.deliveryAddress, i }))
     .filter(x => x.addr);
   const bounds = [];
-  let   bbox   = null;
+  // Moscow + MO bounding box — constrains Photon to the right region from query 1
+  let   bbox   = '35.0,54.0,42.0,57.5';
   const cache  = getGeoCache();
 
   // Phase 1: instantly place cached markers
@@ -1253,7 +1253,6 @@ async function renderMap() {
     if (!c) continue;
     placeMapMarker(i, addr, c);
     bounds.push([c.lat, c.lon]);
-    if (!bbox) bbox = `${c.lon - 0.9},${c.lat - 0.6},${c.lon + 0.9},${c.lat + 0.6}`;
   }
   if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
   else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [40, 40] });
@@ -1264,7 +1263,6 @@ async function renderMap() {
     await new Promise(r => setTimeout(r, 200));
     const coords = await geocodeAddr(addr, bbox);
     if (!coords) continue;
-    if (!bbox) bbox = `${coords.lon - 0.9},${coords.lat - 0.6},${coords.lon + 0.9},${coords.lat + 0.6}`;
     placeMapMarker(i, addr, coords);
     bounds.push([coords.lat, coords.lon]);
     if (bounds.length === 1) mapInstance.setView(bounds[0], 13);
