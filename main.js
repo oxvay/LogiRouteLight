@@ -6,6 +6,7 @@ const LS_ACTIVE   = 'lrl_active';    // { routeId, date }
 const LS_NUMBERS  = 'lrl_numbers';   // { date, suffixes: string[] }
 const LS_STATUSES = 'lrl_statuses';  // { [routeId_index]: status }
 const LS_HISTORY  = 'lrl_history';   // DeliveryRecord[]
+const LS_TAB      = 'lrl_active_tab';
 
 const dataColumns = {
   orderNumber: 0, deliveryAddress: 2, grossWeight: 4,
@@ -224,6 +225,10 @@ function showApp() {
   routeDatePicker.classList.toggle('is-today', true);
   loadSavedNumbers();
   renderCalendar();
+  const savedTab = localStorage.getItem(LS_TAB);
+  if (savedTab && ['routeTab', 'mapTab', 'historyTab'].includes(savedTab)) {
+    switchTab(savedTab);
+  }
 }
 
 function showAdminApp() {
@@ -1087,6 +1092,7 @@ function switchTab(tabId) {
   [tabRouteBtn, tabMapBtn, tabHistoryBtn].forEach(b => b.classList.remove('active'));
   document.getElementById(tabId).classList.remove('hidden');
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+  try { localStorage.setItem(LS_TAB, tabId); } catch {}
   if (tabId === 'historyTab') renderCalendar();
   if (tabId === 'mapTab') renderMap();
 }
@@ -1116,7 +1122,7 @@ function saveGeoCache(c) {
   try { localStorage.setItem(LS_GEOCACHE, JSON.stringify(c)); } catch {}
 }
 function cacheKey(addr) {
-  return (addr || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return expandRuAddress(addr || '').toLowerCase();
 }
 function putInCache(addr, coords) {
   const c = getGeoCache();
