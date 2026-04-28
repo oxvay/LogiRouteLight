@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#FF6B00" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <title>LogiRoute Light</title>
+    <title>LogiRoute CRM</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -25,7 +25,7 @@
         <form id="loginForm" class="auth-form" novalidate>
           <div class="field">
             <label for="loginInput">Логин</label>
-            <input id="loginInput" type="text" autocomplete="username" placeholder="driver" required />
+            <input id="loginInput" type="text" autocomplete="username" placeholder="login" required />
           </div>
           <div class="field">
             <label for="passwordInput">Пароль</label>
@@ -40,10 +40,9 @@
       </div>
     </section>
 
-    <!-- ── App Screen ── -->
+    <!-- ── Driver App Screen ── -->
     <section class="app-screen hidden" id="appPanel">
 
-      <!-- Header -->
       <header class="app-header">
         <div class="header-brand">
           <div class="header-logo">🚚</div>
@@ -57,12 +56,7 @@
 
       <div class="app-content">
 
-        <!-- Upload + Numbers -->
         <div class="upload-section">
-          <div class="upload-btns">
-            <button id="addRouteBtn" class="btn-primary btn-upload" type="button">+ Маршрут</button>
-            <button id="numbersBtn" class="btn-secondary" type="button">🔢 Номера</button>
-          </div>
           <div class="schedule-bar">
             <span class="schedule-label">Дата:</span>
             <div class="date-nav">
@@ -71,26 +65,9 @@
               <button id="dateNextBtn" class="btn-ghost date-nav-btn" type="button">›</button>
             </div>
           </div>
-
-          <!-- Numbers Panel -->
-          <div id="numbersPanel" class="numbers-panel hidden">
-            <p class="numbers-hint">Последние 3 цифры «Номер РасхНакл» — через запятую. Действуют на весь день.</p>
-            <div class="numbers-row">
-              <input id="numbersInput" class="numbers-input" type="text" placeholder="488, 491, 525" />
-              <button id="saveNumbersBtn" class="btn-primary btn-sm" type="button">Сохранить</button>
-            </div>
-            <div id="numbersStatus" class="numbers-status"></div>
-          </div>
-
-          <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
-          <label for="fileInput" class="dropzone" id="dropzone">
-            <span class="dz-icon">📂</span>
-            <span class="dz-text">Перетащите Excel-файл или нажмите «+ Маршрут»</span>
-          </label>
           <div id="statusPanel" class="status-msg"></div>
         </div>
 
-        <!-- Tab Bar -->
         <div class="tab-bar">
           <button class="tab-btn active" id="tabRouteBtn" data-tab="routeTab" type="button">Маршрут</button>
           <button class="tab-btn" id="tabMapBtn" data-tab="mapTab" type="button">🗺 Карта</button>
@@ -99,7 +76,6 @@
           </button>
         </div>
 
-        <!-- ── Route Tab ── -->
         <div id="routeTab">
           <div class="section-header">
             <span class="route-count" id="resultCount">0 точек</span>
@@ -116,17 +92,15 @@
             </div>
           </div>
           <div id="routeList" class="route-list">
-            <div class="empty-state">Укажите номера и загрузите Excel-файл</div>
+            <div class="empty-state">Заказы на этот день ещё не назначены</div>
           </div>
         </div>
 
-        <!-- ── Map Tab ── -->
         <div id="mapTab" class="hidden">
           <div id="mapMsg" class="empty-state hidden"></div>
           <div id="mapContainer" class="map-container hidden"></div>
         </div>
 
-        <!-- ── History Tab ── -->
         <div id="historyTab" class="hidden">
           <div class="cal-nav">
             <button id="calPrevBtn" class="btn-ghost cal-nav-btn" type="button">‹</button>
@@ -140,59 +114,299 @@
           <div id="calDayDetail" class="cal-day-detail hidden"></div>
         </div>
 
-      </div><!-- /app-content -->
+      </div>
     </section>
 
-    <!-- ── Admin Panel ── -->
-    <section class="app-screen hidden" id="adminPanel">
+    <!-- ── Ops Dashboard (manager / supervisor) ── -->
+    <section class="app-screen hidden" id="opsPanel">
 
       <header class="app-header">
         <div class="header-brand">
-          <div class="header-logo admin-logo">⚙️</div>
+          <div class="header-logo ops-logo">📋</div>
           <div>
-            <div class="header-title">LogiRoute Admin</div>
-            <div class="header-sub" id="adminHeaderUser">Администратор</div>
+            <div class="header-title">LogiRoute CRM</div>
+            <div class="header-sub" id="opsHeaderUser">Менеджер</div>
           </div>
         </div>
-        <button id="adminLogoutBtn" class="btn-ghost" type="button">Выйти</button>
+        <button id="opsLogoutBtn" class="btn-ghost" type="button">Выйти</button>
       </header>
 
       <div class="app-content">
 
         <div class="tab-bar">
-          <button class="tab-btn active" id="tabAdminDriversBtn" data-tab="adminDriversTab" type="button">Пользователи</button>
+          <button class="tab-btn active" id="tabOpsOrdersBtn"  data-tab="opsOrdersTab"  type="button">План</button>
+          <button class="tab-btn"        id="tabOpsInboxBtn"   data-tab="opsInboxTab"   type="button">Каталог</button>
+          <button class="tab-btn"        id="tabOpsStatsBtn"   data-tab="opsStatsTab"   type="button">Статистика</button>
+          <button class="tab-btn"        id="tabOpsExportBtn"  data-tab="opsExportTab"  type="button">Экспорт</button>
+          <button class="tab-btn hidden" id="tabOpsUsersBtn"   data-tab="opsUsersTab"   type="button">Пользователи</button>
         </div>
 
-        <div id="adminDriversTab">
-          <div class="section-header">
-            <span class="route-count" id="adminDriversCount">0 пользователей</span>
-            <button id="adminAddDriverBtn" class="btn-primary btn-sm" type="button">+ Добавить</button>
-          </div>
-
-          <div id="adminAddDriverForm" class="admin-form hidden">
-            <div class="admin-form-title">Новый пользователь</div>
-            <div class="admin-form-fields">
-              <div class="field">
-                <label for="newDriverLogin">Логин</label>
-                <input id="newDriverLogin" type="text" placeholder="driver2" autocomplete="off" />
-              </div>
-              <div class="field">
-                <label for="newDriverPassword">Пароль</label>
-                <input id="newDriverPassword" type="password" placeholder="••••••••" autocomplete="new-password" />
+        <!-- Orders tab -->
+        <div id="opsOrdersTab">
+          <div class="ops-toolbar">
+            <div class="schedule-bar">
+              <span class="schedule-label">Дата:</span>
+              <div class="date-nav">
+                <button id="opsDatePrevBtn" class="btn-ghost date-nav-btn" type="button">‹</button>
+                <input type="date" id="opsDatePicker" class="date-picker-input" />
+                <button id="opsDateNextBtn" class="btn-ghost date-nav-btn" type="button">›</button>
               </div>
             </div>
-            <div id="adminDriverError" class="auth-message error hidden"></div>
+            <div class="ops-filter">
+              <label for="opsDriverFilter">Водитель:</label>
+              <select id="opsDriverFilter">
+                <option value="">Все</option>
+              </select>
+            </div>
+            <button id="opsAddOrderBtn" class="btn-primary btn-sm" type="button">+ Заказ</button>
+          </div>
+
+          <div id="opsAddOrderForm" class="admin-form hidden">
+            <div class="admin-form-title" id="opsFormTitle">Новый заказ</div>
+            <div class="admin-form-fields ops-form-grid">
+              <div class="field full">
+                <label for="ordAddress">Адрес *</label>
+                <input id="ordAddress" type="text" placeholder="Москва, ул. Ленина, 5" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="ordTime">Время</label>
+                <input id="ordTime" type="time" />
+              </div>
+              <div class="field">
+                <label for="ordDriver">Водитель</label>
+                <select id="ordDriver">
+                  <option value="">— не назначен —</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="ordBuyer">Покупатель</label>
+                <input id="ordBuyer" type="text" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="ordWeight">Вес (кг)</label>
+                <input id="ordWeight" type="number" step="0.01" min="0" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="ordExternalNo">Накладная</label>
+                <input id="ordExternalNo" type="text" autocomplete="off" />
+              </div>
+              <div class="field full">
+                <label for="ordDescription">Описание</label>
+                <input id="ordDescription" type="text" autocomplete="off" />
+              </div>
+              <div class="field full">
+                <label for="ordComment">Комментарий</label>
+                <textarea id="ordComment" rows="2"></textarea>
+              </div>
+            </div>
+            <div id="opsFormError" class="auth-message error hidden"></div>
             <div class="admin-form-actions">
-              <button id="saveDriverBtn" class="btn-primary btn-sm" type="button">Сохранить</button>
-              <button id="cancelDriverBtn" class="btn-secondary" type="button">Отмена</button>
+              <button id="opsSaveOrderBtn"   class="btn-primary btn-sm" type="button">Сохранить</button>
+              <button id="opsCancelOrderBtn" class="btn-secondary"      type="button">Отмена</button>
             </div>
           </div>
 
-          <div id="adminDriversList" class="route-list"></div>
+          <div class="section-header">
+            <span class="route-count" id="opsOrderCount">0 заказов</span>
+          </div>
+          <div id="opsOrdersList" class="route-list"></div>
+        </div>
+
+        <!-- Catalog tab -->
+        <div id="opsInboxTab" class="hidden">
+          <div class="ops-toolbar">
+            <div class="ops-inbox-hint">Постоянная библиотека объектов. «Назначить» создаёт заказ в Плане — объект из каталога не удаляется.</div>
+            <button id="opsAddInboxBtn" class="btn-primary btn-sm" type="button">+ Объект</button>
+          </div>
+
+          <div id="opsAddInboxForm" class="admin-form hidden">
+            <div class="admin-form-title" id="opsInboxFormTitle">Новый объект каталога</div>
+            <div class="admin-form-fields ops-form-grid">
+              <div class="field full">
+                <label for="inbAddress">Адрес *</label>
+                <input id="inbAddress" type="text" placeholder="Москва, ул. Ленина, 5" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="inbTime">Время по умолчанию</label>
+                <input id="inbTime" type="time" />
+              </div>
+              <div class="field">
+                <label for="inbBuyer">Покупатель</label>
+                <input id="inbBuyer" type="text" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="inbWeight">Вес (кг)</label>
+                <input id="inbWeight" type="number" step="0.01" min="0" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="inbExternalNo">Реф. накладной</label>
+                <input id="inbExternalNo" type="text" autocomplete="off" />
+              </div>
+              <div class="field full">
+                <label for="inbDescription">Описание</label>
+                <input id="inbDescription" type="text" autocomplete="off" />
+              </div>
+              <div class="field full">
+                <label for="inbComment">Комментарий</label>
+                <textarea id="inbComment" rows="2"></textarea>
+              </div>
+            </div>
+            <div id="opsInboxFormError" class="auth-message error hidden"></div>
+            <div class="admin-form-actions">
+              <button id="opsSaveInboxBtn"   class="btn-primary btn-sm" type="button">Сохранить</button>
+              <button id="opsCancelInboxBtn" class="btn-secondary"      type="button">Отмена</button>
+            </div>
+          </div>
+
+          <div class="section-header">
+            <span class="route-count" id="opsInboxCount">0 объектов</span>
+          </div>
+          <div id="opsInboxList" class="route-list"></div>
+        </div>
+
+        <!-- Stats tab -->
+        <div id="opsStatsTab" class="hidden">
+          <div class="cal-nav">
+            <button id="statsPrevBtn" class="btn-ghost cal-nav-btn" type="button">‹</button>
+            <div class="cal-nav-center">
+              <span id="statsMonthLabel"></span>
+              <div class="cal-month-count">Заказов: <span id="statsMonthTotal">0</span> · Доставлено: <span id="statsMonthDelivered">0</span></div>
+            </div>
+            <button id="statsNextBtn" class="btn-ghost cal-nav-btn" type="button">›</button>
+          </div>
+          <div id="statsCalGrid" class="cal-grid stats-cal-grid"></div>
+
+          <div id="statsDayPanel" class="stats-day-panel hidden">
+            <div class="stats-day-header" id="statsDayHeader"></div>
+            <div class="stats-status-grid" id="statsStatusGrid"></div>
+            <div class="stats-section-title">По водителям</div>
+            <div id="statsDayDrivers" class="stats-driver-list"></div>
+          </div>
+
+          <div class="stats-section-title">По водителям за месяц</div>
+          <div id="statsMonthDrivers" class="stats-driver-list"></div>
+        </div>
+
+        <!-- Export tab -->
+        <div id="opsExportTab" class="hidden">
+          <div class="ops-export-card">
+            <h3>Экспорт заказов в Excel</h3>
+            <div class="ops-export-row">
+              <div class="field">
+                <label for="exportDate">Дата</label>
+                <input id="exportDate" type="date" />
+              </div>
+              <div class="field">
+                <label for="exportDriver">Водитель</label>
+                <select id="exportDriver">
+                  <option value="">Все</option>
+                </select>
+              </div>
+            </div>
+            <div class="ops-export-actions">
+              <button class="btn-primary btn-sm" data-export="day"   type="button">📅 День</button>
+              <button class="btn-primary btn-sm" data-export="week"  type="button">📆 Неделя</button>
+              <button class="btn-primary btn-sm" data-export="month" type="button">🗓 Месяц</button>
+            </div>
+            <p class="ops-export-hint">Файл скачается с заказами за выбранный период.</p>
+          </div>
+        </div>
+
+        <!-- Users tab (supervisor / admin only) -->
+        <div id="opsUsersTab" class="hidden">
+          <div class="section-header">
+            <span class="route-count" id="opsUsersCount">0 пользователей</span>
+            <button id="opsAddUserBtn" class="btn-primary btn-sm" type="button">+ Добавить</button>
+          </div>
+
+          <div id="opsAddUserForm" class="admin-form hidden">
+            <div class="admin-form-title">Новый пользователь</div>
+            <div class="admin-form-fields ops-form-grid">
+              <div class="field">
+                <label for="newUserLogin">Логин</label>
+                <input id="newUserLogin" type="text" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="newUserPassword">Пароль</label>
+                <input id="newUserPassword" type="password" autocomplete="new-password" />
+              </div>
+              <div class="field">
+                <label for="newUserRole">Роль</label>
+                <select id="newUserRole">
+                  <option value="driver">Водитель</option>
+                  <option value="manager">Менеджер</option>
+                  <option value="supervisor">Супервайзер</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="newUserFullName">Имя</label>
+                <input id="newUserFullName" type="text" autocomplete="off" />
+              </div>
+            </div>
+            <div id="opsUserError" class="auth-message error hidden"></div>
+            <div class="admin-form-actions">
+              <button id="opsSaveUserBtn"   class="btn-primary btn-sm" type="button">Сохранить</button>
+              <button id="opsCancelUserBtn" class="btn-secondary"      type="button">Отмена</button>
+            </div>
+          </div>
+
+          <div id="opsUsersList" class="route-list"></div>
         </div>
 
       </div>
     </section>
+
+    <!-- Password change modal (used from Пользователи) -->
+    <div id="passwordModal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-title">Изменить пароль</div>
+        <div id="pwdSummary" class="modal-summary"></div>
+        <div class="ops-form-grid">
+          <div class="field full">
+            <label for="pwdNew">Новый пароль *</label>
+            <input id="pwdNew" type="password" autocomplete="new-password" />
+          </div>
+          <div class="field full">
+            <label for="pwdConfirm">Подтверждение *</label>
+            <input id="pwdConfirm" type="password" autocomplete="new-password" />
+          </div>
+        </div>
+        <div id="pwdError" class="auth-message error hidden"></div>
+        <div class="modal-actions">
+          <button id="pwdSaveBtn"   class="btn-primary btn-sm" type="button">Сохранить</button>
+          <button id="pwdCancelBtn" class="btn-secondary"      type="button">Отмена</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Assignment modal (used from Каталог) -->
+    <div id="assignModal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-title">Назначить заказ</div>
+        <div id="assignSummary" class="modal-summary"></div>
+        <div class="ops-form-grid">
+          <div class="field">
+            <label for="assignDate">Дата *</label>
+            <input id="assignDate" type="date" />
+          </div>
+          <div class="field">
+            <label for="assignTime">Время</label>
+            <input id="assignTime" type="time" />
+          </div>
+          <div class="field full">
+            <label for="assignDriver">Водитель</label>
+            <select id="assignDriver">
+              <option value="">— не назначен —</option>
+            </select>
+          </div>
+        </div>
+        <div id="assignError" class="auth-message error hidden"></div>
+        <div class="modal-actions">
+          <button id="assignSaveBtn"   class="btn-primary btn-sm" type="button">Назначить</button>
+          <button id="assignCancelBtn" class="btn-secondary"      type="button">Отмена</button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="./main.js"></script>
   </body>

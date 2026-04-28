@@ -8,9 +8,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server.js",
-    "start": "npm run server"
+    "start": "npm run server",
+    "db:migrate": "node scripts/migrate-from-json.js"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.4.5",
+    "pg": "^8.13.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
